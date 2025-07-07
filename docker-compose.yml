@@ -1,0 +1,232 @@
+# docker-compose.yml
+# Main orchestration file for the QuickBooks Commerce Forecasting System.
+# This file defines all the services, networks, and volumes needed for local development.
+
+version: '3.8'
+
+networks:
+  forecasting-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  timescaledb_data:
+  minio_data:
+  kafka_data:
+  zookeeper_data:
+
+services:
+  # ----------------------------------------------------------------
+  #  1. API & Gateway Layer
+  # ----------------------------------------------------------------
+  api-gateway:
+    image: nginx:1.25-alpine
+    container_name: api-gateway
+    ports:
+      - "80:80"
+    volumes:
+      - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - forecasting-net
+    depends_on:
+      - forecasting-api
+      - forecasting-model
+
+  forecasting-api:
+    build:
+      context: ./services/forecasting-api
+      dockerfile: Dockerfile
+    container_name: forecasting-api-go
+    environment:
+      - POSTGRES_DSN=postgres://user:password@postgres:5432/quickbooks_main?sslmode=disable
+      - TIMESCALEDB_DSN=postgres://user:password@timescaledb:5432/quickbooks_ts?sslmode=disable
+      - TEMPORAL_ADDRESS=temporal:7233
+    networks:
+      - forecasting-net
+    depends_on:
+      - postgres
+      - timescaledb
+      - temporal-server
+
+  # ----------------------------------------------------------------
+  #  2. Data Storage Layer
+  # ----------------------------------------------------------------
+  postgres:
+    image: postgres:14-alpine
+    container_name: postgres-db
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=quickbooks_main
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - forecasting-net
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg14
+    container_name: timescaledb
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=quickbooks_ts
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    networks:
+      - forecasting-net
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio-s3
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"  # S3 API Port
+      - "9001:9001"  # Web Console Port
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    volumes:
+      - minio_data:/data
+    networks:
+      - forecasting-net
+
+  # ----------------------------------------------------------------
+  #  3. Data Ingestion / Streaming
+  # ----------------------------------------------------------------
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.3.2
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - forecasting-net
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+
+  kafka:
+    image: confluentinc/cp-kafka:7.3.2
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_INTERNAL://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    networks:
+      - forecasting-net
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+
+  # ----------------------------------------------------------------
+  #  4. Forecasting Engine & MLOps
+  # ----------------------------------------------------------------
+  forecasting-model:
+    build:
+      context: ./services/forecasting-model
+      dockerfile: Dockerfile
+    container_name: forecasting-model-py
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+    ports:
+      - "8000:8000"
+    networks:
+      - forecasting-net
+    depends_on:
+      - minio
+      - mlflow
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.11.1
+    container_name: mlflow-server
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri postgresql://user:password@postgres/mlflow_db
+      --default-artifact-root s3://mlflow/
+    environment:
+      - AWS_ACCESS_KEY_ID=minioadmin
+      - AWS_SECRET_ACCESS_KEY=minioadmin
+      - MLFLOW_S3_ENDPOINT_URL=http://minio:9000
+    ports:
+      - "5000:5000"
+    networks:
+      - forecasting-net
+    depends_on:
+      - postgres
+      - minio
+
+  # ----------------------------------------------------------------
+  #  5. Orchestration & Scheduling
+  # ----------------------------------------------------------------
+  airflow-scheduler:
+    build:
+      context: ./orchestration/airflow
+    container_name: airflow-scheduler
+    command: scheduler
+    depends_on:
+      - postgres
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://user:password@postgres/airflow_db
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    volumes:
+      - ./orchestration/airflow/dags:/opt/airflow/dags
+    networks:
+      - forecasting-net
+
+  airflow-webserver:
+    build:
+      context: ./orchestration/airflow
+    container_name: airflow-webserver
+    command: webserver
+    ports:
+      - "8080:8080"
+    depends_on:
+      - airflow-scheduler
+    networks:
+      - forecasting-net
+
+  temporal-server:
+    image: temporalio/auto-setup:1.21.3
+    container_name: temporal-server
+    ports:
+      - "7233:7233" # gRPC
+      - "8233:8233" # Web UI
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=user
+      - POSTGRES_PWD=password
+      - POSTGRES_SEEDS=postgres
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamic_config.yaml
+    networks:
+      - forecasting-net
+    depends_on:
+      - postgres
+
+  temporal-worker:
+    build:
+      context: ./orchestration/temporal-workers
+      dockerfile: Dockerfile
+    container_name: temporal-worker
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+    networks:
+      - forecasting-net
+    depends_on:
+      - temporal-server
+
