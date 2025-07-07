@@ -3,7 +3,7 @@ package db
 
 import (
 	"context"
-	"quickbooks-forecasting/internal/models"
+	models "forecasting-api/internal/models"
 )
 
 // PostgresRepository defines the interface for interacting with the main PostgreSQL database.

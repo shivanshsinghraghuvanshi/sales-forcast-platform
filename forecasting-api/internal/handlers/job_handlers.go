@@ -10,8 +10,8 @@ import (
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/client"
 
-	"quickbooks-forecasting/internal/models"
-	"quickbooks-forecasting/internal/temporal"
+	models "forecasting-api/internal/models"
+	temporal "forecasting-api/internal/temporal"
 )
 
 // CreateForecastJob starts a new forecast generation workflow in Temporal.

@@ -1,0 +1,1285 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Category-Based Forecast API",
+    "description": "API for retrieving daily, monthly, and yearly sales forecasts based on product categories with async job processing.",
+    "version": "1.1.0"
+  },
+  "servers": [
+    {
+      "url": "https://api.yourcompany.com/v1",
+      "description": "Production Server"
+    },
+    {
+      "url": "https://api.dev.yourcompany.com/v1",
+      "description": "Development Server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Forecasts",
+      "description": "Operations related to sales forecasts"
+    },
+    {
+      "name": "Jobs",
+      "description": "Async job management for forecast generation"
+    },
+    {
+      "name": "Metadata",
+      "description": "Information about the forecasting system"
+    }
+  ],
+  "paths": {
+    "/forecasts": {
+      "get": {
+        "summary": "Get Category-Based Forecasts",
+        "operationId": "getCategoryForecasts",
+        "tags": [
+          "Forecasts"
+        ],
+        "parameters": [
+          {
+            "name": "category_id",
+            "in": "query",
+            "description": "The unique identifier of the category for which the forecast is requested (e.g., 'electronics', 'food_and_beverage', 'all_products').",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "electronics"
+            }
+          },
+          {
+            "name": "forecast_horizon",
+            "in": "query",
+            "description": "The aggregation level of the forecast (daily, monthly, yearly).",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "daily",
+                "monthly",
+                "yearly"
+              ],
+              "example": "daily"
+            }
+          },
+          {
+            "name": "start_date",
+            "in": "query",
+            "description": "The start date of the forecast period (YYYY-MM-DD). The API will return forecasts starting from this date.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "example": "2025-07-01"
+            }
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "description": "The end date of the forecast period (YYYY-MM-DD). If not provided, the API defaults to a certain number of periods from start_date.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "example": "2025-07-31"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "The page number for pagination (starts from 1).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "example": 1
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "description": "The number of forecast entries per page (max 500).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100,
+              "example": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful retrieval of forecasts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForecastResponse"
+                },
+                "examples": {
+                  "daily_forecast": {
+                    "summary": "Daily forecast example",
+                    "value": {
+                      "data": [
+                        {
+                          "date": "2025-07-01",
+                          "category_id": "electronics",
+                          "forecast_value": 150.75,
+                          "upper_bound": 165.2,
+                          "lower_bound": 135,
+                          "unit": "sales_units"
+                        },
+                        {
+                          "date": "2025-07-02",
+                          "category_id": "electronics",
+                          "forecast_value": 148.32,
+                          "upper_bound": 162.85,
+                          "lower_bound": 133.45,
+                          "unit": "sales_units"
+                        }
+                      ],
+                      "pagination": {
+                        "total_items": 31,
+                        "total_pages": 1,
+                        "current_page": 1,
+                        "page_size": 100,
+                        "has_next_page": false,
+                        "has_prev_page": false,
+                        "next_page_link": null,
+                        "prev_page_link": null
+                      },
+                      "metadata": {
+                        "forecast_generated_at": "2025-07-06T14:30:00Z",
+                        "model_version": "v3.1.2",
+                        "currency": "INR"
+                      }
+                    }
+                  },
+                  "monthly_forecast": {
+                    "summary": "Monthly forecast example",
+                    "value": {
+                      "data": [
+                        {
+                          "date": "2025-07-01",
+                          "category_id": "electronics",
+                          "forecast_value": 4525.5,
+                          "upper_bound": 4950.75,
+                          "lower_bound": 4100.25,
+                          "unit": "sales_units"
+                        },
+                        {
+                          "date": "2025-08-01",
+                          "category_id": "electronics",
+                          "forecast_value": 4680.25,
+                          "upper_bound": 5120.8,
+                          "lower_bound": 4240.7,
+                          "unit": "sales_units"
+                        }
+                      ],
+                      "pagination": {
+                        "total_items": 12,
+                        "total_pages": 1,
+                        "current_page": 1,
+                        "page_size": 100,
+                        "has_next_page": false,
+                        "has_prev_page": false,
+                        "next_page_link": null,
+                        "prev_page_link": null
+                      },
+                      "metadata": {
+                        "forecast_generated_at": "2025-07-06T14:30:00Z",
+                        "model_version": "v3.1.2",
+                        "currency": "INR"
+                      }
+                    }
+                  },
+                  "yearly_forecast": {
+                    "summary": "Yearly forecast example",
+                    "value": {
+                      "data": [
+                        {
+                          "date": "2025-01-01",
+                          "category_id": "electronics",
+                          "forecast_value": 54306,
+                          "upper_bound": 59410.5,
+                          "lower_bound": 49201.5,
+                          "unit": "sales_units"
+                        },
+                        {
+                          "date": "2026-01-01",
+                          "category_id": "electronics",
+                          "forecast_value": 56250.75,
+                          "upper_bound": 61568.25,
+                          "lower_bound": 50933.25,
+                          "unit": "sales_units"
+                        }
+                      ],
+                      "pagination": {
+                        "total_items": 5,
+                        "total_pages": 1,
+                        "current_page": 1,
+                        "page_size": 100,
+                        "has_next_page": false,
+                        "has_prev_page": false,
+                        "next_page_link": null,
+                        "prev_page_link": null
+                      },
+                      "metadata": {
+                        "forecast_generated_at": "2025-07-06T14:30:00Z",
+                        "model_version": "v3.1.2",
+                        "currency": "INR"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Forecast data not ready - Job created for async processing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResponse"
+                },
+                "example": {
+                  "job_id": "job_12345abcde",
+                  "status": "processing",
+                  "message": "Forecast generation job created successfully",
+                  "estimated_completion_time": "2025-07-06T15:00:00Z",
+                  "poll_url": "/jobs/job_12345abcde",
+                  "webhook_url": null
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found - No forecast data for the specified criteria.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/forecasts/generate": {
+      "post": {
+        "summary": "Create Forecast Generation Job",
+        "operationId": "createForecastJob",
+        "tags": [
+          "Jobs"
+        ],
+        "description": "Creates an async job to generate forecasts for specified parameters when data is not readily available.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForecastJobRequest"
+              },
+              "examples": {
+                "daily_job": {
+                  "summary": "Daily forecast generation job",
+                  "value": {
+                    "category_id": "electronics",
+                    "forecast_horizon": "daily",
+                    "start_date": "2025-07-01",
+                    "end_date": "2025-07-31",
+                    "priority": "normal",
+                    "webhook_url": "https://yourapp.com/webhooks/forecast-complete"
+                  }
+                },
+                "monthly_job": {
+                  "summary": "Monthly forecast generation job",
+                  "value": {
+                    "category_id": "food_and_beverage",
+                    "forecast_horizon": "monthly",
+                    "start_date": "2025-01-01",
+                    "end_date": "2025-12-01",
+                    "priority": "high",
+                    "webhook_url": "https://yourapp.com/webhooks/forecast-complete"
+                  }
+                },
+                "yearly_job": {
+                  "summary": "Yearly forecast generation job",
+                  "value": {
+                    "category_id": "all_products",
+                    "forecast_horizon": "yearly",
+                    "start_date": "2025-01-01",
+                    "end_date": "2030-01-01",
+                    "priority": "low"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Job created successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResponse"
+                },
+                "example": {
+                  "job_id": "job_67890fghij",
+                  "status": "queued",
+                  "message": "Forecast generation job created and queued",
+                  "estimated_completion_time": "2025-07-06T16:30:00Z",
+                  "poll_url": "/jobs/job_67890fghij",
+                  "webhook_url": "https://yourapp.com/webhooks/forecast-complete"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid job parameters.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests - Job queue is full.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/{job_id}": {
+      "get": {
+        "summary": "Get Job Status",
+        "operationId": "getJobStatus",
+        "tags": [
+          "Jobs"
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "description": "The unique identifier of the job.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "job_12345abcde"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job status retrieved successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusResponse"
+                },
+                "examples": {
+                  "job_processing": {
+                    "summary": "Job in progress",
+                    "value": {
+                      "job_id": "job_12345abcde",
+                      "status": "processing",
+                      "progress": 45,
+                      "message": "Generating forecasts for electronics category",
+                      "created_at": "2025-07-06T14:30:00Z",
+                      "updated_at": "2025-07-06T14:45:00Z",
+                      "estimated_completion_time": "2025-07-06T15:00:00Z",
+                      "result_url": null,
+                      "webhook_url": "https://yourapp.com/webhooks/forecast-complete"
+                    }
+                  },
+                  "job_completed": {
+                    "summary": "Job completed",
+                    "value": {
+                      "job_id": "job_12345abcde",
+                      "status": "completed",
+                      "progress": 100,
+                      "message": "Forecast generation completed successfully",
+                      "created_at": "2025-07-06T14:30:00Z",
+                      "updated_at": "2025-07-06T14:58:00Z",
+                      "estimated_completion_time": "2025-07-06T15:00:00Z",
+                      "result_url": "/forecasts?category_id=electronics&forecast_horizon=daily&start_date=2025-07-01&end_date=2025-07-31",
+                      "webhook_url": "https://yourapp.com/webhooks/forecast-complete"
+                    }
+                  },
+                  "job_failed": {
+                    "summary": "Job failed",
+                    "value": {
+                      "job_id": "job_12345abcde",
+                      "status": "failed",
+                      "progress": 0,
+                      "message": "Forecast generation failed due to insufficient historical data",
+                      "created_at": "2025-07-06T14:30:00Z",
+                      "updated_at": "2025-07-06T14:35:00Z",
+                      "estimated_completion_time": null,
+                      "result_url": null,
+                      "webhook_url": "https://yourapp.com/webhooks/forecast-complete",
+                      "error_details": {
+                        "code": "INSUFFICIENT_DATA",
+                        "message": "Not enough historical data for reliable forecasting"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/{job_id}/cancel": {
+      "post": {
+        "summary": "Cancel Job",
+        "operationId": "cancelJob",
+        "tags": [
+          "Jobs"
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "description": "The unique identifier of the job to cancel.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "job_12345abcde"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job cancelled successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Job cannot be cancelled (e.g., already completed).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs": {
+      "get": {
+        "summary": "List Jobs",
+        "operationId": "listJobs",
+        "tags": [
+          "Jobs"
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter jobs by status.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "queued",
+                "processing",
+                "completed",
+                "failed",
+                "cancelled"
+              ]
+            }
+          },
+          {
+            "name": "category_id",
+            "in": "query",
+            "description": "Filter jobs by category.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number for pagination.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "description": "Number of jobs per page.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Jobs retrieved successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/forecasts/categories": {
+      "get": {
+        "summary": "Get Supported Forecast Categories",
+        "operationId": "getForecastCategories",
+        "tags": [
+          "Metadata"
+        ],
+        "description": "Retrieves a list of categories for which forecasts are available.",
+        "responses": {
+          "200": {
+            "description": "Successful retrieval of categories.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "categories": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Category"
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "categories": [
+                    {
+                      "id": "electronics",
+                      "name": "Electronics & Gadgets"
+                    },
+                    {
+                      "id": "food_and_beverage",
+                      "name": "Food & Beverage"
+                    },
+                    {
+                      "id": "clothing",
+                      "name": "Clothing & Apparel"
+                    },
+                    {
+                      "id": "home_and_garden",
+                      "name": "Home & Garden"
+                    },
+                    {
+                      "id": "all_products",
+                      "name": "All Products Combined"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/forecasts/metadata": {
+      "get": {
+        "summary": "Get Forecast System Metadata",
+        "operationId": "getForecastSystemMetadata",
+        "tags": [
+          "Metadata"
+        ],
+        "description": "Retrieves general metadata about the forecasting system.",
+        "responses": {
+          "200": {
+            "description": "Successful retrieval of metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForecastMetadata"
+                },
+                "example": {
+                  "supported_horizons": [
+                    "daily",
+                    "monthly",
+                    "yearly"
+                  ],
+                  "default_page_size": 100,
+                  "max_page_size": 500,
+                  "last_model_update": "2025-07-05T08:00:00Z",
+                  "available_forecast_start_date": "2024-01-01",
+                  "job_queue_status": {
+                    "active_jobs": 3,
+                    "queued_jobs": 12,
+                    "max_concurrent_jobs": 10
+                  },
+                  "forecast_data_availability": {
+                    "daily": "Real-time to 90 days ahead",
+                    "monthly": "Real-time to 24 months ahead",
+                    "yearly": "Real-time to 5 years ahead"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ForecastEntry": {
+        "type": "object",
+        "description": "Represents a single forecast entry for a specific date and category.",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "description": "The date for which the forecast is made (YYYY-MM-DD). For monthly, it's the 1st of the month; for yearly, it's Jan 1st.",
+            "example": "2025-07-15"
+          },
+          "category_id": {
+            "type": "string",
+            "description": "The ID of the category this forecast belongs to.",
+            "example": "electronics"
+          },
+          "forecast_value": {
+            "type": "number",
+            "format": "float",
+            "description": "The predicted sales value.",
+            "example": 150.75
+          },
+          "upper_bound": {
+            "type": "number",
+            "format": "float",
+            "description": "The upper bound of the confidence interval for the forecast.",
+            "example": 165.2
+          },
+          "lower_bound": {
+            "type": "number",
+            "format": "float",
+            "description": "The lower bound of the confidence interval for the forecast.",
+            "example": 135
+          },
+          "unit": {
+            "type": "string",
+            "description": "The unit of the forecast value (e.g., 'sales_units', 'USD', 'items').",
+            "example": "sales_units"
+          }
+        },
+        "required": [
+          "date",
+          "category_id",
+          "forecast_value",
+          "unit"
+        ]
+      },
+      "ForecastJobRequest": {
+        "type": "object",
+        "description": "Request body for creating a forecast generation job.",
+        "properties": {
+          "category_id": {
+            "type": "string",
+            "description": "The category ID for which to generate forecasts.",
+            "example": "electronics"
+          },
+          "forecast_horizon": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "monthly",
+              "yearly"
+            ],
+            "description": "The aggregation level of the forecast.",
+            "example": "daily"
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "description": "The start date of the forecast period.",
+            "example": "2025-07-01"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "description": "The end date of the forecast period.",
+            "example": "2025-07-31"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "low",
+              "normal",
+              "high"
+            ],
+            "description": "Priority level for job processing.",
+            "default": "normal",
+            "example": "normal"
+          },
+          "webhook_url": {
+            "type": "string",
+            "format": "url",
+            "description": "Optional webhook URL to notify when job completes.",
+            "example": "https://yourapp.com/webhooks/forecast-complete"
+          }
+        },
+        "required": [
+          "category_id",
+          "forecast_horizon",
+          "start_date",
+          "end_date"
+        ]
+      },
+      "JobResponse": {
+        "type": "object",
+        "description": "Response when a job is created.",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "description": "Unique identifier for the created job.",
+            "example": "job_12345abcde"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "processing",
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "description": "Current status of the job.",
+            "example": "queued"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable message about the job status.",
+            "example": "Forecast generation job created and queued"
+          },
+          "estimated_completion_time": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Estimated completion time for the job.",
+            "example": "2025-07-06T15:00:00Z"
+          },
+          "poll_url": {
+            "type": "string",
+            "format": "url",
+            "description": "URL to poll for job status updates.",
+            "example": "/jobs/job_12345abcde"
+          },
+          "webhook_url": {
+            "type": "string",
+            "format": "url",
+            "nullable": true,
+            "description": "Webhook URL that will be called when job completes.",
+            "example": "https://yourapp.com/webhooks/forecast-complete"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "message",
+          "poll_url"
+        ]
+      },
+      "JobStatusResponse": {
+        "type": "object",
+        "description": "Detailed job status information.",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "description": "Unique identifier for the job.",
+            "example": "job_12345abcde"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "processing",
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "description": "Current status of the job.",
+            "example": "processing"
+          },
+          "progress": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Job completion progress as a percentage.",
+            "example": 45
+          },
+          "message": {
+            "type": "string",
+            "description": "Detailed message about the current job status.",
+            "example": "Generating forecasts for electronics category"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp when the job was created.",
+            "example": "2025-07-06T14:30:00Z"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp when the job status was last updated.",
+            "example": "2025-07-06T14:45:00Z"
+          },
+          "estimated_completion_time": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Estimated completion time for the job.",
+            "example": "2025-07-06T15:00:00Z"
+          },
+          "result_url": {
+            "type": "string",
+            "format": "url",
+            "nullable": true,
+            "description": "URL to access the forecast results (available when job is completed).",
+            "example": "/forecasts?category_id=electronics&forecast_horizon=daily&start_date=2025-07-01&end_date=2025-07-31"
+          },
+          "webhook_url": {
+            "type": "string",
+            "format": "url",
+            "nullable": true,
+            "description": "Webhook URL that will be called when job completes.",
+            "example": "https://yourapp.com/webhooks/forecast-complete"
+          },
+          "error_details": {
+            "type": "object",
+            "nullable": true,
+            "description": "Error details if the job failed.",
+            "properties": {
+              "code": {
+                "type": "string",
+                "description": "Error code.",
+                "example": "INSUFFICIENT_DATA"
+              },
+              "message": {
+                "type": "string",
+                "description": "Error message.",
+                "example": "Not enough historical data for reliable forecasting"
+              }
+            }
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "progress",
+          "message",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "JobListResponse": {
+        "type": "object",
+        "description": "Response containing a list of jobs.",
+        "properties": {
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JobStatusResponse"
+            }
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/PaginationInfo"
+          }
+        },
+        "required": [
+          "jobs",
+          "pagination"
+        ]
+      },
+      "PaginationInfo": {
+        "type": "object",
+        "description": "Pagination details for the forecast response.",
+        "properties": {
+          "total_items": {
+            "type": "integer",
+            "description": "Total number of forecast items available for the query.",
+            "example": 31
+          },
+          "total_pages": {
+            "type": "integer",
+            "description": "Total number of pages for the query.",
+            "example": 1
+          },
+          "current_page": {
+            "type": "integer",
+            "description": "The current page number.",
+            "example": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "description": "The number of items per page.",
+            "example": 100
+          },
+          "has_next_page": {
+            "type": "boolean",
+            "description": "True if there is a next page, false otherwise.",
+            "example": false
+          },
+          "has_prev_page": {
+            "type": "boolean",
+            "description": "True if there is a previous page, false otherwise.",
+            "example": false
+          },
+          "next_page_link": {
+            "type": "string",
+            "format": "url",
+            "nullable": true,
+            "description": "URL to the next page of results, or null if no next page.",
+            "example": null
+          },
+          "prev_page_link": {
+            "type": "string",
+            "format": "url",
+            "nullable": true,
+            "description": "URL to the previous page of results, or null if no previous page.",
+            "example": null
+          }
+        },
+        "required": [
+          "total_items",
+          "total_pages",
+          "current_page",
+          "page_size",
+          "has_next_page",
+          "has_prev_page"
+        ]
+      },
+      "ForecastResponse": {
+        "type": "object",
+        "description": "The main response structure for forecast retrieval.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ForecastEntry"
+            },
+            "description": "A list of forecast entries for the requested period."
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/PaginationInfo"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Additional metadata about the forecast.",
+            "properties": {
+              "forecast_generated_at": {
+                "type": "string",
+                "format": "date-time",
+                "description": "Timestamp (ISO 8601) when the forecast data was last generated.",
+                "example": "2025-07-06T14:30:00Z"
+              },
+              "model_version": {
+                "type": "string",
+                "description": "The version of the forecasting model used.",
+                "example": "v3.1.2"
+              },
+              "currency": {
+                "type": "string",
+                "description": "The currency unit if the forecast is monetary (e.g., USD, INR).",
+                "example": "INR"
+              }
+            },
+            "required": [
+              "forecast_generated_at",
+              "model_version"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "pagination",
+          "metadata"
+        ]
+      },
+      "Category": {
+        "type": "object",
+        "description": "Represents a forecastable category.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for the category.",
+            "example": "electronics"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable name of the category.",
+            "example": "Electronics & Gadgets"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      },
+      "ForecastMetadata": {
+        "type": "object",
+        "description": "General metadata about the forecasting system and supported parameters.",
+        "properties": {
+          "supported_horizons": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "daily",
+                "monthly",
+                "yearly"
+              ]
+            },
+            "description": "List of supported forecast aggregation levels.",
+            "example": [
+              "daily",
+              "monthly",
+              "yearly"
+            ]
+          },
+          "default_page_size": {
+            "type": "integer",
+            "description": "Default number of forecast entries returned per page.",
+            "example": 100
+          },
+          "max_page_size": {
+            "type": "integer",
+            "description": "Maximum allowed number of forecast entries per page.",
+            "example": 500
+          },
+          "last_model_update": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp (ISO 8601) when the forecasting models were last updated/retrained.",
+            "example": "2025-07-05T08:00:00Z"
+          },
+          "available_forecast_start_date": {
+            "type": "string",
+            "format": "date",
+            "description": "The earliest date for which forecasts can be requested.",
+            "example": "2024-01-01"
+          },
+          "job_queue_status": {
+            "type": "object",
+            "description": "Information about the job processing queue.",
+            "properties": {
+              "active_jobs": {
+                "type": "integer",
+                "description": "Number of currently processing jobs.",
+                "example": 3
+              },
+              "queued_jobs": {
+                "type": "integer",
+                "description": "Number of jobs waiting in queue.",
+                "example": 12
+              },
+              "max_concurrent_jobs": {
+                "type": "integer",
+                "description": "Maximum number of jobs that can process concurrently.",
+                "example": 10
+              }
+            },
+            "required": [
+              "active_jobs",
+              "queued_jobs",
+              "max_concurrent_jobs"
+            ]
+          },
+          "forecast_data_availability": {
+            "type": "object",
+            "description": "Information about forecast data availability by horizon.",
+            "properties": {
+              "daily": {
+                "type": "string",
+                "description": "Availability range for daily forecasts.",
+                "example": "Real-time to 90 days ahead"
+              },
+              "monthly": {
+                "type": "string",
+                "description": "Availability range for monthly forecasts.",
+                "example": "Real-time to 24 months ahead"
+              },
+              "yearly": {
+                "type": "string",
+                "description": "Availability range for yearly forecasts.",
+                "example": "Real-time to 5 years ahead"
+              }
+            },
+            "required": [
+              "daily",
+              "monthly",
+              "yearly"
+            ]
+          }
+        },
+        "required": [
+          "supported_horizons",
+          "default_page_size",
+          "max_page_size",
+          "last_model_update",
+          "available_forecast_start_date"
+        ]
+      },
+      "ErrorDetail": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "description": "The field that caused the error (e.g., 'start_date', 'page_size').",
+            "example": "start_date"
+          },
+          "issue": {
+            "type": "string",
+            "description": "A description of the issue with the field.",
+            "example": "Invalid format"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "description": "Standard error response structure.",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "description": "A specific error code for the type of error.",
+                "example": "BAD_REQUEST"
+              },
+              "message": {
+                "type": "string",
+                "description": "A human-readable message describing the error.",
+                "example": "Invalid date format. Expected YYYY-MM-DD."
+              },
+              "details": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "description": "Optional array of specific field errors."
+              }
+            }
+          }
+        },
+        "required": [
+          "error"
+        ]
+      }
+    }
+  }
+}

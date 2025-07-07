@@ -3,6 +3,9 @@ package main
 
 import (
 	"context"
+	"forecasting-api/internal/db"
+	apiHandlers "forecasting-api/internal/handlers"
+	temporal "forecasting-api/internal/temporal"
 	"log"
 	"os"
 
@@ -10,10 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
-
-	"quickbooks-forecasting/internal/db"
-	"quickbooks-forecasting/internal/handlers"
-	temporal_client "quickbooks-forecasting/internal/temporal"
 )
 
 func main() {
@@ -41,7 +40,7 @@ func main() {
 	log.Println("Successfully connected to TimescaleDB.")
 
 	// --- Temporal Client ---
-	temporalService, err := temporal_client.NewTemporalClient()
+	temporalService, err := temporal.NewTemporalClient()
 	if err != nil {
 		log.Fatalf("Unable to create Temporal client: %v", err)
 	}
@@ -51,7 +50,7 @@ func main() {
 	// --- Setup Repositories and Handlers ---
 	postgresRepo := db.NewPostgresRepo(postgresPool)
 	timescaleRepo := db.NewTimescaleRepo(timescalePool)
-	apiHandlers := handlers.NewAPIHandler(postgresRepo, timescaleRepo, temporalService)
+	apiHandlers := apiHandlers.NewAPIHandler(postgresRepo, timescaleRepo, temporalService)
 
 	// --- Gin Router Setup ---
 	router := gin.Default()

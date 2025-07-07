@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log"
 
-	"quickbooks-forecasting/internal/models"
+	models "forecasting-api/internal/models"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
