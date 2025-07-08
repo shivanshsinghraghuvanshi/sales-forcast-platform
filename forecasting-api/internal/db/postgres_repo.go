@@ -44,7 +44,7 @@ func (r *postgresRepo) GetCategories(ctx context.Context) ([]models.Category, er
 // ListJobs retrieves a list of jobs from the database.
 func (r *postgresRepo) ListJobs(ctx context.Context) ([]models.JobStatusResponse, error) {
 	// This is a placeholder. You would build a proper query with filtering.
-	query := `SELECT job_id, status, progress, message, created_at, updated_at FROM forecast_jobs ORDER BY created_at DESC LIMIT 20;`
+	query := `SELECT job_id, status, progress, message, created_at, updated_at FROM jobs ORDER BY created_at DESC LIMIT 20;`
 	
 	rows, err := r.pool.Query(ctx, query)
 	if err != nil {

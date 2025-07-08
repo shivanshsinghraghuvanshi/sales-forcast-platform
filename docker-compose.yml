@@ -49,8 +49,6 @@ services:
         condition: service_healthy
       timescaledb:
         condition: service_healthy
-      temporal-server:
-        condition: service_healthy
 
   # ----------------------------------------------------------------
   #  2. Data Storage Layer

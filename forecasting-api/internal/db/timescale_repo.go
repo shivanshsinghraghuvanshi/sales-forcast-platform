@@ -24,10 +24,10 @@ func (r *timescaleRepo) GetForecasts(ctx context.Context, params models.GetForec
 	// Basic query - can be enhanced with time_bucket for different horizons
 	query := `
 		SELECT 
-			time, category_id, forecast_value, upper_bound, lower_bound, unit
+			date, category_id, forecast_value, upper_bound, lower_bound, unit
 		FROM forecasts
-		WHERE category_id = $1 AND time >= $2 AND time <= $3
-		ORDER BY time
+		WHERE category_id = $1 AND date >= $2 AND date <= $3
+		ORDER BY date
 		LIMIT $4 OFFSET $5;
 	`
 	offset := (params.Page - 1) * params.PageSize
