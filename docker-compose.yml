@@ -63,6 +63,7 @@ services:
       - POSTGRES_PASSWORD=password
       - POSTGRES_DB=quickbooks_main
     volumes:
+      - ./db-init/postgres:/docker-entrypoint-initdb.d
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
@@ -82,6 +83,7 @@ services:
       - POSTGRES_PASSWORD=password
       - POSTGRES_DB=quickbooks_ts
     volumes:
+      - ./db-init/timescaledb:/docker-entrypoint-initdb.d
       - timescaledb_data:/var/lib/postgresql/data
     ports:
       - "5433:5432"
@@ -236,7 +238,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-      start_period: 60s # Give the server time to initialize before starting checks
+      start_period: 120s # Give the server more time (2 mins) to initialize before starting checks
     depends_on: # Temporal needs postgres to be running first
       postgres:
         condition: service_healthy
