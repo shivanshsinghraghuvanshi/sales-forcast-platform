@@ -27,7 +27,7 @@ RUN go build -ldflags="-w -s" -o forecasting-api ./cmd/main.go
 
 # --- Stage 2: Final Image ---
 # This stage creates the final, lightweight production image.
-FROM alpine:3.18
+FROM alpine:3.20
 
 # Set the working directory
 WORKDIR /app
@@ -36,8 +36,8 @@ WORKDIR /app
 COPY --from=builder /app/forecasting-api .
 
 # Copy the OpenAPI specification file for the Swagger UI
-# This assumes the spec file is in an 'api' subdirectory relative to the Dockerfile context.
-COPY api/openapi.json .
+# This ensures the spec file is placed in the 'api' subdirectory, matching the path used in main.go.
+COPY api/openapi.json ./api/
 
 # Expose the port the application runs on
 EXPOSE 8080

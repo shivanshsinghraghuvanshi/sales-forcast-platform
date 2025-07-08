@@ -8,11 +8,13 @@ import (
 	temporal "forecasting-api/internal/temporal"
 	"log"
 	"os"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
+	"go.temporal.io/sdk/client"
 )
 
 func main() {
@@ -39,10 +41,20 @@ func main() {
 	defer timescalePool.Close()
 	log.Println("Successfully connected to TimescaleDB.")
 
-	// --- Temporal Client ---
-	temporalService, err := temporal.NewTemporalClient()
-	if err != nil {
-		log.Fatalf("Unable to create Temporal client: %v", err)
+	// --- Temporal Client with Retry ---
+	// This loop makes the service resilient to transient connection errors,
+	// especially during startup when the Temporal server might not be ready yet.
+	var temporalService client.Client
+	for i := 0; i < 10; i++ {
+		temporalService, err = temporal.NewTemporalClient()
+		if err == nil {
+			break // Success
+		}
+		log.Printf("Failed to connect to Temporal, retrying in 5 seconds... (attempt %d/10): %v", i+1, err)
+		time.Sleep(5 * time.Second)
+	}
+	if err != nil { // If still nil after retries
+		log.Fatalf("Could not establish Temporal client connection after multiple retries: %v", err)
 	}
 	defer temporalService.Close()
 	log.Println("Successfully connected to Temporal.")
