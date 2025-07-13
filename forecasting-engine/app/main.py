@@ -1,7 +1,13 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
-from typing import List, Dict, Any
+# forecasting-engine/app/main.py
+from typing import List
 
-# Assuming these modules exist in your project structure
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
+from fastapi.responses import JSONResponse
+
+# Import our new schemas and exceptions
+from .schemas import ForecastResponse, ModelVersion, ModelPerformance
+from .custom_exceptions import ModelNotFoundError, ModelLoadError
+
 from .prediction_manager import generate_forecast
 from .training_manager import train_and_save_models
 from .observability_manager import get_model_versions_for_category, get_performance_for_model_version
@@ -12,9 +18,24 @@ app = FastAPI(
     version="2.0.0"
 )
 
-# --- Prediction Endpoint ---
+# --- Exception Handlers ---
+# This makes our error handling clean and centralized.
+@app.exception_handler(ModelNotFoundError)
+async def model_not_found_exception_handler(request: Request, exc: ModelNotFoundError):
+    return JSONResponse(
+        status_code=404,
+        content={"detail": str(exc)},
+    )
 
-@app.get("/forecast/{category_id}", tags=["Forecasting"])
+@app.exception_handler(ModelLoadError)
+async def model_load_exception_handler(request: Request, exc: ModelLoadError):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc)},
+    )
+
+# --- Prediction Endpoint ---
+@app.get("/forecast/{category_id}", response_model=ForecastResponse, tags=["Forecasting"])
 def get_forecast(category_id: str, days: int = 30):
     """
     Generates a sales forecast for a given category for a specified number of future days.
@@ -22,45 +43,33 @@ def get_forecast(category_id: str, days: int = 30):
     if days <= 0:
         raise HTTPException(status_code=400, detail="Number of days must be positive.")
 
-    print(f"Received forecast request for category '{category_id}' for {days} days.")
-
+    # The manager function is now cleaner. Exceptions are handled by the handlers above.
     forecast_result = generate_forecast(category_id, days)
-
-    if "error" in forecast_result:
-        raise HTTPException(status_code=404, detail=forecast_result["error"])
-
     return forecast_result
 
 # --- MLOps & Observability Endpoints ---
-
 @app.post("/training/run", status_code=202, tags=["MLOps"])
 def trigger_model_training(background_tasks: BackgroundTasks):
     """
     Triggers a background job to retrain all models for all categories.
-    This uses the full MLOps pipeline: training, backtesting, versioning, and saving.
     """
-    print("Received request to run model training job.")
     background_tasks.add_task(train_and_save_models)
     return {"message": "Model training job started in the background."}
 
-
-@app.get("/observability/versions/{category_id}", response_model=List[Dict[str, Any]], tags=["Observability"])
+@app.get("/observability/versions/{category_id}", response_model=List[ModelVersion], tags=["Observability"])
 def get_model_version_history(category_id: str):
     """
-    Retrieves the complete version history for a specific category's model,
-    including backtesting metrics.
+    Retrieves the complete version history for a specific category's model.
     """
     versions = get_model_versions_for_category(category_id)
     if not versions:
         raise HTTPException(status_code=404, detail=f"No model versions found for category '{category_id}'.")
     return versions
 
-
-@app.get("/observability/performance/{version_id}", response_model=List[Dict[str, Any]], tags=["Observability"])
+@app.get("/observability/performance/{version_id}", response_model=List[ModelPerformance], tags=["Observability"])
 def get_model_performance_history(version_id: int):
     """
-    Retrieves the live performance (drift detection) history for a specific
-    model version ID.
+    Retrieves the live performance history for a specific model version ID.
     """
     performance_data = get_performance_for_model_version(version_id)
     if not performance_data:

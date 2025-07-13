@@ -1,8 +1,8 @@
+# forecasting-engine/app/db_utils.py
 from sqlalchemy import create_engine
-
-# --- Configuration ---
-DB_CONNECTION_STRING = "postgresql://admin:password@localhost:5432/sales_db"
+from .settings import settings # Import the settings instance
 
 def get_db_engine():
-    """Creates and returns a SQLAlchemy engine for the database."""
-    return create_engine(DB_CONNECTION_STRING)
+    """Creates and returns a SQLAlchemy engine from application settings."""
+    # The connection string is now managed centrally
+    return create_engine(settings.db_connection_string)
