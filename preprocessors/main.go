@@ -280,21 +280,19 @@ func processMetadata(db *sql.DB) error {
 	}
 	if !isProdProcessed {
 		log.Printf("Processing %s...", prodFileName)
-		// FIX: The INSERT statement and parser must match the CSV and table schema.
-		// We will insert the description and leave category_id as NULL since it's not in the source CSV.
+		// *** FIX: Update INSERT statement and parser to handle all 4 columns from the new products.csv ***
 		err := processSimpleCSV(
 			db,
 			prodFilePath,
 			prodFileName,
 			"products",
-			// The table has description and category_id, but we only provide 3 values from the CSV.
-			"INSERT INTO products (product_id, product_name, description) VALUES ($1, $2, $3)",
+			"INSERT INTO products (product_id, product_name, description, category_id) VALUES ($1, $2, $3, $4)",
 			func(record []string) ([]interface{}, error) {
-				if len(record) < 3 {
-					return nil, fmt.Errorf("invalid record, expected 3 columns: %v", record)
+				if len(record) < 4 {
+					return nil, fmt.Errorf("invalid record, expected 4 columns: %v", record)
 				}
-				// This now correctly maps product_id, product_name, and description.
-				return []interface{}{record[0], record[1], record[2]}, nil
+				// This now correctly maps all four columns from the CSV.
+				return []interface{}{record[0], record[1], record[2], record[3]}, nil
 			},
 		)
 		if err != nil {
@@ -324,20 +322,19 @@ func processExternalData(db *sql.DB) error {
 	}
 
 	log.Printf("Processing %s...", fileName)
+	// *** FIX: Update INSERT statement and parser to handle all 7 columns from the new promotions.csv ***
 	err = processSimpleCSV(
 		db,
 		filePath,
 		fileName,
 		"promotions",
-		"INSERT INTO promotions (promotion_id, promotion_name, start_date, end_date, discount_percentage) VALUES ($1, $2, $3, $4, $5)",
+		"INSERT INTO promotions (promotion_id, promotion_name, start_date, end_date, discount_percentage, target_type, target_id) VALUES ($1, $2, $3, $4, $5, $6, $7)",
 		func(record []string) ([]interface{}, error) {
-			if len(record) < 5 {
-				return nil, fmt.Errorf("invalid record, expected 5 columns: %v", record)
+			if len(record) < 7 {
+				return nil, fmt.Errorf("invalid record, expected 7 columns: %v", record)
 			}
 
-			// --- FIX: Use correct column indexes based on the CSV file ---
-			// CSV: promotion_id[0], promotion_name[1], start_date[2], end_date[3], discount_percentage[4]
-
+			// CSV: promotion_id[0], promotion_name[1], start_date[2], end_date[3], discount_percentage[4], target_type[5], target_id[6]
 			startDate, err := time.Parse("2006-01-02", record[2])
 			if err != nil {
 				return nil, fmt.Errorf("invalid start_date format: %s", record[2])
@@ -351,7 +348,11 @@ func processExternalData(db *sql.DB) error {
 				return nil, fmt.Errorf("invalid discount value: %s", record[4])
 			}
 
-			return []interface{}{record[0], record[1], startDate, endDate, discount}, nil
+			// target_type and target_id are simple strings from the CSV
+			targetType := record[5]
+			targetID := record[6]
+
+			return []interface{}{record[0], record[1], startDate, endDate, discount, targetType, targetID}, nil
 		},
 	)
 
