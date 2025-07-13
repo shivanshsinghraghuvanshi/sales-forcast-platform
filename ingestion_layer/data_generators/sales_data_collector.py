@@ -70,7 +70,7 @@ def generate_sales_transaction(date_for_transaction: datetime):
     }
 
 
-def create_sales_batch_files(days=100, transactions_per_day=1000, **kwargs):
+def create_sales_batch_files(days=1000, transactions_per_day=1000, **kwargs):
     """Generates batches of sales data for a specified number of days and saves them as daily CSV files."""
     if not PRODUCT_CATEGORY_MAP:
         print("Could not generate sales file because product map is missing.")

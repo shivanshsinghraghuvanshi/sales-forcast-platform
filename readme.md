@@ -33,11 +33,5 @@ Then, start the services:
  `python data_generators/external_data_collector.py`
 
 
-# Running python data pre-processing
-`python -m ingestion_layer.preprocessors.process_sales`
-`python -m ingestion_layer.preprocessors.process_metadata`
-`python -m ingestion_layer.preprocessors.process_external`
-
-
 # Running Forecasting Engine locally
 `uvicorn app.main:app --reload`

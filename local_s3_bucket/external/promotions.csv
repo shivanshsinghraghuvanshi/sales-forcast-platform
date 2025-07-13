@@ -1,7 +1,7 @@
 promotion_id,promotion_name,start_date,end_date,discount_percentage,target_type,target_id
-PROMO_001,Summer Sale,2025-07-13,2025-07-18,10,category,CAT_03
-PROMO_002,Back to School,2025-07-23,2025-07-28,10,category,CAT_05
-PROMO_003,Holiday Special,2025-08-02,2025-08-07,15,product,PROD_093
-PROMO_004,Flash Sale,2025-08-12,2025-08-17,15,category,CAT_03
-PROMO_005,Weekend Deal,2025-08-22,2025-08-27,25,category,CAT_05
-PROMO_006,Clearance,2025-09-01,2025-09-06,20,category,CAT_04
+PROMO_001,Summer Sale,2025-07-14,2025-07-19,30,product,PROD_050
+PROMO_002,Back to School,2025-07-24,2025-07-29,30,category,CAT_05
+PROMO_003,Holiday Special,2025-08-03,2025-08-08,30,category,CAT_04
+PROMO_004,Flash Sale,2025-08-13,2025-08-18,30,product,PROD_022
+PROMO_005,Weekend Deal,2025-08-23,2025-08-28,20,category,CAT_04
+PROMO_006,Clearance,2025-09-02,2025-09-07,30,category,CAT_04
