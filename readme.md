@@ -16,3 +16,9 @@ Then, start the services:
 
 # Stopping Airflow with teardown volumes
 `docker-compose -f docker-compose.airflow.yaml down -v`
+
+# Starting the Databases
+`docker-compose -f docker-compose.db.yaml up -d`
+
+# Stopping the Databases
+`docker-compose -f docker-compose.db.yaml down --volumes`
