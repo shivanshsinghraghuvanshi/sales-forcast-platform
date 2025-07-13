@@ -22,3 +22,9 @@ Then, start the services:
 
 # Stopping the Databases
 `docker-compose -f docker-compose.db.yaml down --volumes`
+
+
+# Running python data pre-processing
+`python -m ingestion_layer.preprocessors.process_sales`
+`python -m ingestion_layer.preprocessors.process_metadata`
+`python -m ingestion_layer.preprocessors.process_external`
