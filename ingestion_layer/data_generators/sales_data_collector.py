@@ -11,8 +11,20 @@ import os
 KAFKA_TOPIC = "sales_transactions"
 KAFKA_SERVER = "localhost:9092"
 LOCAL_S3_PATH = "./../local_s3_bucket/sales/"
+METADATA_PATH = "./../local_s3_bucket/metadata/products.csv"
 
-# Initialize Faker for generating realistic data
+# --- Load Product-to-Category Mapping ---
+try:
+    # This mapping is the single source of truth for product-category relationships
+    product_df = pd.read_csv(METADATA_PATH)
+    PRODUCT_CATEGORY_MAP = pd.Series(product_df.category_id.values, index=product_df.product_id).to_dict()
+    print("Successfully loaded product-to-category map.")
+except FileNotFoundError:
+    print(f"Error: Metadata file not found at {METADATA_PATH}.")
+    print("Please run the metadata_collector.py script first.")
+    PRODUCT_CATEGORY_MAP = {} # Prevent crash if file doesn't exist
+
+# Initialize Faker
 fake = Faker()
 
 # Initialize Kafka Producer
@@ -28,38 +40,39 @@ except Exception as e:
 
 
 def generate_sales_transaction():
-    """Generates a single fake sales transaction."""
+    """
+    Generates a single fake sales transaction ensuring the product_id
+    and category_id are consistent.
+    """
+    if not PRODUCT_CATEGORY_MAP:
+        return None # Cannot generate data without the map
+
+    # 1. Pick a random product
+    product_id = random.choice(list(PRODUCT_CATEGORY_MAP.keys()))
+    # 2. Look up its correct category
+    category_id = PRODUCT_CATEGORY_MAP[product_id]
+
     return {
         "transaction_id": fake.uuid4(),
-        "product_id": f"PROD_{random.randint(1, 100):03d}",
-        "category_id": f"CAT_{random.randint(1, 5):02d}",
+        "product_id": product_id,
+        "category_id": category_id, # This is now consistent
         "quantity": random.randint(1, 5),
         "price_per_unit": round(random.uniform(10.5, 200.5), 2),
         "timestamp": datetime.now().isoformat()
     }
 
 
-def stream_real_time_sales(duration_seconds=60):
-    """Streams sales data to Kafka for a given duration."""
-    if not producer:
-        print("Cannot stream sales data: Kafka producer is not available.")
+def create_daily_sales_batch_file(**kwargs):
+    """Generates a batch of sales data and saves it as a CSV."""
+    if not PRODUCT_CATEGORY_MAP:
+        print("Could not generate sales file because product map is missing.")
         return
 
-    print(f"Starting real-time sales stream to Kafka topic '{KAFKA_TOPIC}' for {duration_seconds} seconds...")
-    end_time = time.time() + duration_seconds
-    while time.time() < end_time:
-        transaction = generate_sales_transaction()
-        producer.send(KAFKA_TOPIC, transaction)
-        print(f"Sent: {transaction['transaction_id']}")
-        time.sleep(random.uniform(0.5, 2.0))
-    producer.flush()
-    print("Finished real-time sales stream.")
-
-
-def create_daily_sales_batch_file(**kwargs):
-    """Generates a batch of sales data and saves it as a CSV. For Airflow."""
-    print("Generating daily sales batch file...")
+    print("Generating daily sales batch file with consistent product-category data...")
     transactions = [generate_sales_transaction() for _ in range(1000)]
+    # Filter out any None values that might occur if the map fails to load
+    transactions = [t for t in transactions if t is not None]
+
     df = pd.DataFrame(transactions)
 
     os.makedirs(LOCAL_S3_PATH, exist_ok=True)
@@ -70,8 +83,4 @@ def create_daily_sales_batch_file(**kwargs):
 
 
 if __name__ == "__main__":
-    # To test real-time streaming:
-    # stream_real_time_sales(duration_seconds=30)
-
-    # To test batch file creation:
     create_daily_sales_batch_file()

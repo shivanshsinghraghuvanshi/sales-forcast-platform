@@ -1,4 +1,4 @@
-#Running kafka
+# Running kafka
 `docker-compose -f docker-compose.kafka.yaml up -d`
 
 # Stopping kafka
@@ -22,6 +22,15 @@ Then, start the services:
 
 # Stopping the Databases
 `docker-compose -f docker-compose.db.yaml down --volumes`
+
+# Running Generator
+ cd into `ingestion_layer`
+ First run `metadata` as fake sales data needs a category to be generated
+ `python data_generators/metadata_collector.py`
+ Run Sales Data generator
+ `python data_generators/sales_data_collector.py`
+ Run External Data generator
+ `python data_generators/external_data_collector.py`
 
 
 # Running python data pre-processing

@@ -7,6 +7,8 @@ CREATE TABLE categories (
 );
 
 -- Create the table for storing relational product metadata
+-- NOTE: This schema is already correct for the new products.csv,
+-- as it includes the category_id column with a foreign key.
 CREATE TABLE products (
     product_id TEXT PRIMARY KEY,
     product_name TEXT NOT NULL,
@@ -26,12 +28,15 @@ CREATE TABLE hourly_sales_by_category (
 SELECT create_hypertable('hourly_sales_by_category', 'time');
 
 -- Create the table for storing external promotions data
+-- *** CHANGE: Added target_type and target_id to link promotions to products or categories ***
 CREATE TABLE promotions (
     promotion_id VARCHAR(50) PRIMARY KEY,
     promotion_name VARCHAR(255) NOT NULL,
     discount_percentage NUMERIC(5, 2) NOT NULL,
     start_date DATE NOT NULL,
-    end_date DATE NOT NULL
+    end_date DATE NOT NULL,
+    target_type VARCHAR(20), -- Can be 'product' or 'category'
+    target_id VARCHAR(50)    -- The ID of the product or category being targeted
 );
 
 -- Create the table to track the status of our ETL jobs
