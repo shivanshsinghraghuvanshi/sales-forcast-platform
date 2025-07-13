@@ -11,41 +11,66 @@ from datetime import datetime
 MODEL_REGISTRY_PATH = "model_registry/"
 DB_CONNECTION_STRING = "postgresql://admin:password@localhost:5432/sales_db"
 
-
 def get_db_engine():
     """Creates and returns a SQLAlchemy engine."""
     return create_engine(DB_CONNECTION_STRING)
-
 
 def fetch_training_data(engine):
     """Fetches hourly aggregated sales data from the database."""
     print("Fetching training data from database...")
     query = "SELECT time, category_id, total_sales FROM hourly_sales_by_category"
     df = pd.read_sql(query, engine)
-
+    
     df.rename(columns={'time': 'ds', 'total_sales': 'y'}, inplace=True)
     df['ds'] = pd.to_datetime(df['ds'])
-
-    print(f"Successfully fetched {len(df)} records.")
+    
+    # Prophet requires timezone-naive timestamps.
+    df['ds'] = df['ds'].dt.tz_localize(None)
+    
+    print(f"Successfully fetched and prepared {len(df)} records.")
     return df
-
 
 def run_backtesting(model, training_df):
     """
     Performs cross-validation to get model accuracy metrics.
+    This function is now more robust to handle datasets of varying sizes.
     """
     print("Running backtesting (cross-validation)...")
-    # Use 10% of the data as the forecast horizon for testing
-    horizon_days = max(30, int(len(training_df) * 0.1))  # Ensure at least 30 days horizon
+    
+    # --- FIX: Calculate parameters based on the actual time span of the data in days ---
+    
+    # First, find the total number of days the data spans.
+    data_span_days = (training_df['ds'].max() - training_df['ds'].min()).days
+    
+    # The forecast horizon is 10% of the data's time span, with a minimum of 30 days.
+    horizon_days = max(30, int(data_span_days * 0.1))
+    
+    # The initial training period should be at least 3x the horizon.
+    initial_days = max(90, 3 * horizon_days)
+    
+    # The period between successive tests can be half the horizon.
+    period_days = max(15, horizon_days // 2)
+
+    # **Crucial Check**: Ensure there's enough data history for at least one validation fold.
+    if data_span_days < initial_days + horizon_days:
+        print(f"WARNING: Not enough data history for cross-validation. "
+              f"Data spans {data_span_days} days, but require at least {initial_days + horizon_days} days. "
+              f"Skipping backtesting for this model.")
+        # Return an empty list to indicate that backtesting was skipped.
+        return []
+
     horizon = f'{horizon_days} days'
-
-    df_cv = cross_validation(model, initial=f'{len(training_df) - horizon_days} days',
-                             period=f'{horizon_days // 2} days', horizon=horizon, parallel="processes")
+    initial = f'{initial_days} days'
+    period = f'{period_days} days'
+    
+    print(f"Cross-validation params: initial='{initial}', period='{period}', horizon='{horizon}'")
+    
+    df_cv = cross_validation(model, initial=initial, period=period, horizon=horizon, parallel="processes")
     df_p = performance_metrics(df_cv)
-
+    
     print("Backtesting complete. Performance metrics:")
     print(df_p.head())
-
+    
     # Return the performance metrics as a dictionary
     return df_p.to_dict('records')
 
@@ -75,11 +100,10 @@ def save_model_and_metadata_to_db(engine, model, category, training_df, backtest
             connection.execute(unmark_latest_sql, {"category_id": category})
 
             insert_sql = text("""
-                              INSERT INTO model_versions
-                              (category_id, version, model_path, training_date_utc, is_latest, metadata,
-                               backtesting_metrics)
-                              VALUES (:category_id, :version, :model_path, :training_date, TRUE, :metadata, :metrics)
-                              """)
+                INSERT INTO model_versions 
+                (category_id, version, model_path, training_date_utc, is_latest, metadata, backtesting_metrics)
+                VALUES (:category_id, :version, :model_path, :training_date, TRUE, :metadata, :metrics)
+            """)
             connection.execute(
                 insert_sql,
                 {
@@ -88,7 +112,7 @@ def save_model_and_metadata_to_db(engine, model, category, training_df, backtest
                     "model_path": model_filepath,
                     "training_date": datetime.utcnow(),
                     "metadata": json.dumps(metadata),
-                    "metrics": json.dumps(backtesting_metrics)
+                    "metrics": json.dumps(backtesting_metrics) # This can now be an empty list
                 }
             )
             print(f"Successfully inserted new model version '{timestamp}' into database.")
@@ -114,16 +138,18 @@ def train_and_save_models():
 
     for category in categories:
         print(f"\n--- Processing category: {category} ---")
-        category_df = all_data[all_data['category_id'] == category].copy()
+        category_df = all_data[all_data['category_id'] == category].copy().reset_index(drop=True)
 
-        if len(category_df) < 100:  # Need enough data for meaningful backtesting
-            print(f"Skipping category '{category}' due to insufficient data for backtesting.")
+        # We need at least a few data points to even attempt to train a model.
+        if len(category_df) < 50:
+            print(f"Skipping category '{category}' due to insufficient data for training.")
             continue
 
         try:
             model = Prophet()
             model.fit(category_df[['ds', 'y']])
 
+            # Backtesting is now more robust and may be skipped if data is insufficient.
             backtesting_metrics = run_backtesting(model, category_df)
 
             save_model_and_metadata_to_db(engine, model, category, category_df, backtesting_metrics)
