@@ -1,0 +1,5 @@
+/logs/*
+/ingestion_layer/local_s3_bucket/*
+__pycache__
+.idea
+ingestion_layer/.idea
