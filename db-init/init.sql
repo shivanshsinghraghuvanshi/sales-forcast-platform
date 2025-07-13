@@ -7,62 +7,67 @@ CREATE TABLE categories (
 );
 
 -- Create the table for storing relational product metadata
--- NOTE: This schema is already correct for the new products.csv,
--- as it includes the category_id column with a foreign key.
-CREATE TABLE products (
-    product_id TEXT PRIMARY KEY,
-    product_name TEXT NOT NULL,
-    description TEXT,
-    category_id TEXT REFERENCES categories(category_id)
+create table products (
+   product_id   text primary key,
+   product_name text not null,
+   description  text,
+   category_id  text
+      references categories ( category_id )
 );
 
 -- Create the table for storing time-series sales data
-CREATE TABLE hourly_sales_by_category (
-    time TIMESTAMPTZ NOT NULL,
-    category_id TEXT NOT NULL,
-    total_sales NUMERIC,
-    total_quantity INTEGER
+create table hourly_sales_by_category (
+   time           timestamptz not null,
+   category_id    text not null,
+   total_sales    numeric,
+   total_quantity integer,
+    -- *** FIX: Add a UNIQUE constraint on the combination of time and category_id ***
+    -- This is required for the ON CONFLICT clause in the Go processor to work correctly.
+   unique ( time,
+            category_id )
 );
 
 -- Turn the sales table into a TimescaleDB hypertable for performance
-SELECT create_hypertable('hourly_sales_by_category', 'time');
-
--- Create the table for storing external promotions data
--- *** CHANGE: Added target_type and target_id to link promotions to products or categories ***
-CREATE TABLE promotions (
-    promotion_id VARCHAR(50) PRIMARY KEY,
-    promotion_name VARCHAR(255) NOT NULL,
-    discount_percentage NUMERIC(5, 2) NOT NULL,
-    start_date DATE NOT NULL,
-    end_date DATE NOT NULL,
-    target_type VARCHAR(20), -- Can be 'product' or 'category'
-    target_id VARCHAR(50)    -- The ID of the product or category being targeted
+select create_hypertable(
+   'hourly_sales_by_category',
+   'time'
 );
+
 
 -- Create the table to track the status of our ETL jobs
-CREATE TABLE etl_job_status (
-    id SERIAL PRIMARY KEY,
-    file_name TEXT NOT NULL UNIQUE,
-    status VARCHAR(20) NOT NULL, -- e.g., 'PENDING', 'SUCCESS', 'FAILED'
-    last_updated TIMESTAMPTZ DEFAULT NOW()
+create table etl_job_status (
+   id           serial primary key,
+   file_name    text not null unique,
+   status       varchar(20) not null, -- e.g., 'PENDING', 'SUCCESS', 'FAILED'
+   last_updated timestamptz default now()
 );
 
+-- Create the table for storing external promotions data
+create table promotions (
+   promotion_id        text primary key,
+   promotion_name      text,
+   start_date          date,
+   end_date            date,
+   discount_percentage integer,
+   target_type         varchar(20), -- Can be 'product' or 'category'
+   target_id           varchar(50)    -- The ID of the product or category being targeted
+);
 
 -- Create the table for model versioning and metadata
-CREATE TABLE model_versions (
-    id SERIAL PRIMARY KEY,
-    category_id TEXT NOT NULL,
-    version TEXT NOT NULL,
-    model_path TEXT NOT NULL,
-    training_date_utc TIMESTAMPTZ NOT NULL,
-    is_latest BOOLEAN DEFAULT FALSE,
-    metadata JSONB,
-    -- NEW: Add a field for storing backtesting accuracy metrics
-    backtesting_metrics JSONB,
-    UNIQUE (category_id, version)
+create table model_versions (
+   id                  serial primary key,
+   category_id         text not null,
+   version             text not null,
+   model_path          text not null,
+   training_date_utc   timestamptz not null,
+   is_latest           boolean default false,
+   metadata            jsonb,
+   backtesting_metrics jsonb,
+   unique ( category_id,
+            version )
 );
 
--- NEW: Create a table to store live performance metrics for drift detection
+-- Create a table to store live performance metrics for drift detection
 CREATE TABLE forecast_performance (
     id SERIAL PRIMARY KEY,
     model_version_id INTEGER REFERENCES model_versions(id),

@@ -34,9 +34,15 @@ func dbConnect() *sql.DB {
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
+	// Set pool parameters for better performance with concurrency
+	db.SetMaxOpenConns(25) // Limit the number of open connections
+	db.SetMaxIdleConns(25)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
 	if err := db.Ping(); err != nil {
 		log.Fatalf("Failed to ping database: %v", err)
 	}
+	log.Println("Database connection pool established successfully.")
 	return db
 }
 
@@ -54,7 +60,7 @@ func checkJobStatus(db *sql.DB, fileName string) (bool, error) {
 	return status == "SUCCESS", nil
 }
 
-// updateJobStatus updates the status of a file processing job using a standalone connection.
+// updateJobStatus updates the status of a file processing job using a connection from the pool.
 func updateJobStatus(db *sql.DB, fileName, status string) error {
 	query := `
         INSERT INTO etl_job_status (file_name, status, last_updated)
@@ -82,7 +88,7 @@ func updateJobStatusInTx(tx *sql.Tx, fileName, status string) error {
 }
 
 // processSingleSalesFile reads, transforms, and loads a single sales CSV file.
-func processSingleSalesFile(db *sql.DB, fileName string) (err error) { // Named return for easier defer handling
+func processSingleSalesFile(db *sql.DB, fileName string) (err error) {
 	filePath := filepath.Join(rawSalesPath, fileName)
 	log.Printf("[Worker] Starting to process file: %s", fileName)
 
@@ -122,11 +128,9 @@ func processSingleSalesFile(db *sql.DB, fileName string) (err error) { // Named 
 			continue
 		}
 
-		// *** PRIMARY FIX: Use a more flexible timestamp layout to match Python's isoformat() ***
 		const layout = "2006-01-02T15:04:05.999999"
 		timestamp, err := time.Parse(layout, record[5])
 		if err != nil {
-			// Fallback for formats without microseconds
 			const fallbackLayout = "2006-01-02T15:04:05"
 			timestamp, err = time.Parse(fallbackLayout, record[5])
 			if err != nil {
@@ -168,10 +172,11 @@ func processSingleSalesFile(db *sql.DB, fileName string) (err error) { // Named 
 		}
 	}()
 
-	stmt, err := tx.Prepare("INSERT INTO hourly_sales_by_category (time, category_id, total_sales, total_quantity) VALUES ($1, $2, $3, $4)")
+	stmt, err := tx.Prepare("INSERT INTO hourly_sales_by_category (time, category_id, total_sales, total_quantity) VALUES ($1, $2, $3, $4) ON CONFLICT (time, category_id) DO UPDATE SET total_sales = hourly_sales_by_category.total_sales + EXCLUDED.total_sales, total_quantity = hourly_sales_by_category.total_quantity + EXCLUDED.total_quantity")
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement for %s: %w", fileName, err)
 	}
+	defer stmt.Close()
 
 	for hour, catMap := range aggregates {
 		for catID, data := range catMap {
@@ -228,7 +233,6 @@ func processAllSalesFiles(db *sql.DB) error {
 
 	var filesToProcess []string
 	for _, fileName := range fileNames {
-		// *** IDEMPOTENCY FIX: Process any file that is NOT marked as SUCCESS ***
 		if status, exists := jobStatuses[fileName]; !exists || status != "SUCCESS" {
 			filesToProcess = append(filesToProcess, fileName)
 		}
@@ -242,25 +246,45 @@ func processAllSalesFiles(db *sql.DB) error {
 	log.Printf("Found %d files to process: %v", len(filesToProcess), filesToProcess)
 
 	var wg sync.WaitGroup
-	for _, fileName := range filesToProcess {
-		wg.Add(1)
-		go func(fName string) {
-			defer wg.Done()
-			// Mark as PENDING before starting
-			if err := updateJobStatus(db, fName, "PENDING"); err != nil {
-				log.Printf("[Worker] ERROR failed to mark %s as PENDING: %v", fName, err)
-				return
-			}
+	jobs := make(chan string, len(filesToProcess))
+	results := make(chan error, len(filesToProcess))
 
-			if err := processSingleSalesFile(db, fName); err != nil {
-				log.Printf("[Worker] ERROR processing file %s: %v", fName, err)
-				// On error, mark as FAILED
-				updateJobStatus(db, fName, "FAILED")
+	// Start a fixed number of workers (e.g., 10)
+	for w := 1; w <= 10; w++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for fName := range jobs {
+				log.Printf("[Worker %d] Picked up job for file: %s", workerID, fName)
+				// *** FIX: The main orchestrator already decides what to process.
+				// The worker's only job is to process and report success or failure.
+				if err := processSingleSalesFile(db, fName); err != nil {
+					log.Printf("[Worker %d] ERROR processing file %s: %v", workerID, fName, err)
+					updateJobStatus(db, fName, "FAILED")
+					results <- err
+				} else {
+					// The status is updated to SUCCESS inside processSingleSalesFile's transaction
+					results <- nil
+				}
 			}
-		}(fileName)
+		}(w)
 	}
 
+	// Send jobs to the workers
+	for _, fileName := range filesToProcess {
+		jobs <- fileName
+	}
+	close(jobs)
+
 	wg.Wait()
+	close(results)
+
+	for err := range results {
+		if err != nil {
+			log.Printf("A worker reported an error: %v", err)
+		}
+	}
+
 	log.Println("--- Sales data processing cycle finished ---")
 	return nil
 }

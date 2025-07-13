@@ -20,7 +20,7 @@ Then, start the services:
 # Starting the Databases
 `docker-compose -f docker-compose.db.yaml up -d`
 
-# Stopping the Databases
+# Stopping the Databases with destroyibg volumes
 `docker-compose -f docker-compose.db.yaml down --volumes`
 
 # Running Generator
