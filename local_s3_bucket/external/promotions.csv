@@ -1,0 +1,5 @@
+promotion_id,promotion_name,start_date,end_date,discount_percentage
+PROMO_001,Summer Sale,2025-07-13,2025-07-18,15
+PROMO_002,Back to School,2025-07-23,2025-07-28,20
+PROMO_003,Holiday Special,2025-08-02,2025-08-07,25
+PROMO_004,Flash Sale,2025-08-12,2025-08-17,10

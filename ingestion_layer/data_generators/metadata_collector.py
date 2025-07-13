@@ -2,7 +2,7 @@ import pandas as pd
 import os
 
 # --- Configuration ---
-LOCAL_S3_PATH = "local_s3_bucket/metadata/"
+LOCAL_S3_PATH = "./../local_s3_bucket/metadata/"
 
 def create_metadata_files(**kwargs):
     """Generates and saves metadata files for products and categories. For Airflow."""

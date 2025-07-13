@@ -10,7 +10,7 @@ import os
 # --- Configuration ---
 KAFKA_TOPIC = "sales_transactions"
 KAFKA_SERVER = "localhost:9092"
-LOCAL_S3_PATH = "local_s3_bucket/sales/"
+LOCAL_S3_PATH = "./../local_s3_bucket/sales/"
 
 # Initialize Faker for generating realistic data
 fake = Faker()

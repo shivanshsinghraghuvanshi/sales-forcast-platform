@@ -2,7 +2,7 @@ import pandas as pd
 import os
 from .db_utils import get_db_engine
 
-RAW_METADATA_PATH = "./../ingestion_layer/local_s3_bucket/metadata/"
+RAW_METADATA_PATH = "./../local_s3_bucket/metadata/"
 
 
 def process_file(engine, file_name, table_name, **kwargs):

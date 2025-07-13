@@ -2,7 +2,7 @@ import pandas as pd
 import os
 from .db_utils import get_db_engine
 
-RAW_EXTERNAL_PATH = "./../ingestion_layer/local_s3_bucket/external/"
+RAW_EXTERNAL_PATH = "./../local_s3_bucket/external/"
 
 
 def process_external_data():

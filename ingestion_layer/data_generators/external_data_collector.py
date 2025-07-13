@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import os
 
 # --- Configuration ---
-LOCAL_S3_PATH = "local_s3_bucket/external/"
+LOCAL_S3_PATH = "./../local_s3_bucket/external/"
 
 def create_external_data_files(**kwargs):
     """Simulates fetching external data and saves it to a file. For Airflow."""

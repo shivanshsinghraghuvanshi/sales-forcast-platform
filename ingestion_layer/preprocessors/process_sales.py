@@ -3,7 +3,7 @@ import os
 from datetime import datetime
 from .db_utils import get_db_engine
 
-RAW_SALES_PATH = "./../ingestion_layer/local_s3_bucket/sales/"
+RAW_SALES_PATH = "./../local_s3_bucket/sales/"
 
 
 def process_sales_data():
