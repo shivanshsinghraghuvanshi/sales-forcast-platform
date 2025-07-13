@@ -64,12 +64,12 @@ func updateJobStatus(db *sql.DB, fileName, status string) error {
     `
 	_, err := db.Exec(query, fileName, status)
 	if err != nil {
-		return fmt.Errorf("failed to update job status: %w", err)
+		return fmt.Errorf("failed to update job status for %s: %w", fileName, err)
 	}
 	return nil
 }
 
-// updateJobStatus updates the status of a file processing job within a transaction.
+// updateJobStatusInTx updates the status within an existing transaction for atomicity.
 func updateJobStatusInTx(tx *sql.Tx, fileName, status string) error {
 	query := `
         INSERT INTO etl_job_status (file_name, status, last_updated)
@@ -82,7 +82,6 @@ func updateJobStatusInTx(tx *sql.Tx, fileName, status string) error {
 }
 
 // processSingleSalesFile reads, transforms, and loads a single sales CSV file.
-// This function is designed to be run concurrently in a goroutine.
 func processSingleSalesFile(db *sql.DB, fileName string) (err error) { // Named return for easier defer handling
 	filePath := filepath.Join(rawSalesPath, fileName)
 	log.Printf("[Worker] Starting to process file: %s", fileName)
@@ -99,12 +98,10 @@ func processSingleSalesFile(db *sql.DB, fileName string) (err error) { // Named 
 		return fmt.Errorf("could not read header from %s: %w", fileName, err)
 	}
 
-	// --- Transformation Logic ---
 	type HourlyAggregate struct {
 		TotalSales    float64
 		TotalQuantity int
 	}
-	// map[hour_timestamp][category_id]
 	aggregates := make(map[time.Time]map[string]HourlyAggregate)
 
 	for {
@@ -117,18 +114,23 @@ func processSingleSalesFile(db *sql.DB, fileName string) (err error) { // Named 
 		}
 
 		if len(record) < 6 {
-			continue // Skip malformed rows
+			continue
 		}
 		quantity, _ := strconv.Atoi(record[3])
 		price, _ := strconv.ParseFloat(record[4], 64)
 		if quantity <= 0 || price <= 0 {
 			continue
 		}
-		timestamp, err := time.Parse(time.RFC3339Nano, record[5])
+
+		// *** PRIMARY FIX: Use a more flexible timestamp layout to match Python's isoformat() ***
+		const layout = "2006-01-02T15:04:05.999999"
+		timestamp, err := time.Parse(layout, record[5])
 		if err != nil {
-			// Fallback for format without nanoseconds
-			timestamp, err = time.Parse("2006-01-02T15:04:05Z", record[5])
+			// Fallback for formats without microseconds
+			const fallbackLayout = "2006-01-02T15:04:05"
+			timestamp, err = time.Parse(fallbackLayout, record[5])
 			if err != nil {
+				log.Printf("Skipping row due to invalid timestamp in %s: %s", fileName, record[5])
 				continue
 			}
 		}
@@ -146,20 +148,23 @@ func processSingleSalesFile(db *sql.DB, fileName string) (err error) { // Named 
 		aggregates[hour][categoryID] = agg
 	}
 
-	// --- Load Logic (Transactional) ---
+	if len(aggregates) == 0 {
+		log.Printf("[Worker] No valid data found in %s to process. Marking as SUCCESS.", fileName)
+		return updateJobStatus(db, fileName, "SUCCESS")
+	}
+
 	tx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction for %s: %w", fileName, err)
 	}
-	// Use defer with a named return to handle rollback on error
 	defer func() {
 		if p := recover(); p != nil {
 			tx.Rollback()
-			panic(p) // re-throw panic after Rollback
+			panic(p)
 		} else if err != nil {
-			tx.Rollback() // err is non-nil; don't change it
+			tx.Rollback()
 		} else {
-			err = tx.Commit() // if err is nil, returns the Commit error
+			err = tx.Commit()
 		}
 	}()
 
@@ -176,20 +181,18 @@ func processSingleSalesFile(db *sql.DB, fileName string) (err error) { // Named 
 		}
 	}
 
-	// Update the status to SUCCESS within the same transaction
 	if err := updateJobStatusInTx(tx, fileName, "SUCCESS"); err != nil {
 		return fmt.Errorf("failed to update job status for %s: %w", fileName, err)
 	}
 
 	log.Printf("[Worker] Successfully processed and loaded '%s'.", fileName)
-	return nil // err will be set by the deferred commit
+	return nil
 }
 
 // processAllSalesFiles is the main orchestrator function.
 func processAllSalesFiles(db *sql.DB) error {
 	log.Println("--- Starting sales data processing cycle ---")
 
-	// 1. Get all files from the sales directory
 	dirEntries, err := os.ReadDir(rawSalesPath)
 	if err != nil {
 		return fmt.Errorf("failed to read sales directory: %w", err)
@@ -207,8 +210,6 @@ func processAllSalesFiles(db *sql.DB) error {
 		return nil
 	}
 
-	// 2. Efficiently get the status of all files in a single query
-	// *** FIX: Wrap the fileNames slice with pq.Array to correctly pass it to the driver ***
 	query := "SELECT file_name, status FROM etl_job_status WHERE file_name = ANY($1)"
 	rows, err := db.Query(query, pq.Array(fileNames))
 	if err != nil {
@@ -225,11 +226,10 @@ func processAllSalesFiles(db *sql.DB) error {
 		jobStatuses[fileName] = status
 	}
 
-	// 3. Determine which files to process (new or failed)
 	var filesToProcess []string
 	for _, fileName := range fileNames {
-		status, exists := jobStatuses[fileName]
-		if !exists || status == "FAILED" {
+		// *** IDEMPOTENCY FIX: Process any file that is NOT marked as SUCCESS ***
+		if status, exists := jobStatuses[fileName]; !exists || status != "SUCCESS" {
 			filesToProcess = append(filesToProcess, fileName)
 		}
 	}
@@ -241,27 +241,21 @@ func processAllSalesFiles(db *sql.DB) error {
 
 	log.Printf("Found %d files to process: %v", len(filesToProcess), filesToProcess)
 
-	// 4. Process files concurrently
 	var wg sync.WaitGroup
 	for _, fileName := range filesToProcess {
 		wg.Add(1)
 		go func(fName string) {
 			defer wg.Done()
 			// Mark as PENDING before starting
-			tx, _ := db.Begin()
-			if tx != nil {
-				updateJobStatusInTx(tx, fName, "PENDING")
-				tx.Commit()
+			if err := updateJobStatus(db, fName, "PENDING"); err != nil {
+				log.Printf("[Worker] ERROR failed to mark %s as PENDING: %v", fName, err)
+				return
 			}
 
 			if err := processSingleSalesFile(db, fName); err != nil {
 				log.Printf("[Worker] ERROR processing file %s: %v", fName, err)
 				// On error, mark as FAILED
-				tx, _ := db.Begin()
-				if tx != nil {
-					updateJobStatusInTx(tx, fName, "FAILED")
-					tx.Commit()
-				}
+				updateJobStatus(db, fName, "FAILED")
 			}
 		}(fileName)
 	}
