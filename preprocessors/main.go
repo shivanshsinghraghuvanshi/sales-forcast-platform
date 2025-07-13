@@ -322,72 +322,107 @@ func processSimpleCSV(db *sql.DB, filePath, fileName, tableName, insertQuery str
 	return tx.Commit()
 }
 
-// processMetadata loads product and category info.
-func processMetadata(db *sql.DB) error {
+// *** REFACTORED METADATA PROCESSING LOGIC ***
+func processMetadata(db *sql.DB) (err error) {
 	log.Println("Starting metadata processing...")
+	jobName := "metadata_full_refresh"
 
-	// --- Process Categories ---
-	catFileName := "categories.csv"
-	catFilePath := filepath.Join(rawMetadataPath, catFileName)
-	isCatProcessed, err := checkJobStatus(db, catFileName)
+	// Check status for the entire metadata job
+	var status string
+	err = db.QueryRow("SELECT status FROM etl_job_status WHERE file_name = $1", jobName).Scan(&status)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("failed to query metadata job status: %w", err)
+	}
+	// For simplicity, we re-run this job every time. In production, you might check for success.
+
+	// Open source files
+	catFile, err := os.Open(filepath.Join(rawMetadataPath, "categories.csv"))
 	if err != nil {
-		return fmt.Errorf("error checking status for %s: %w", catFileName, err)
+		return fmt.Errorf("could not open categories file: %w", err)
 	}
-	if !isCatProcessed {
-		log.Printf("Processing %s...", catFileName)
-		err := processSimpleCSV(
-			db,
-			catFilePath,
-			catFileName,
-			"categories",
-			"INSERT INTO categories (category_id, category_name) VALUES ($1, $2)",
-			func(record []string) ([]interface{}, error) {
-				if len(record) < 2 {
-					return nil, fmt.Errorf("invalid record, expected 2 columns: %v", record)
-				}
-				return []interface{}{record[0], record[1]}, nil
-			},
-		)
-		if err != nil {
-			updateJobStatus(db, catFileName, "FAILED")
-			return fmt.Errorf("failed to process %s: %w", catFileName, err)
-		}
-	} else {
-		log.Printf("File '%s' already processed. Skipping.", catFileName)
-	}
+	defer catFile.Close()
 
-	// --- Process Products ---
-	prodFileName := "products.csv"
-	prodFilePath := filepath.Join(rawMetadataPath, prodFileName)
-	isProdProcessed, err := checkJobStatus(db, prodFileName)
+	prodFile, err := os.Open(filepath.Join(rawMetadataPath, "products.csv"))
 	if err != nil {
-		return fmt.Errorf("error checking status for %s: %w", prodFileName, err)
+		return fmt.Errorf("could not open products file: %w", err)
 	}
-	if !isProdProcessed {
-		log.Printf("Processing %s...", prodFileName)
-		// *** FIX: Update INSERT statement and parser to handle all 4 columns from the new products.csv ***
-		err := processSimpleCSV(
-			db,
-			prodFilePath,
-			prodFileName,
-			"products",
-			"INSERT INTO products (product_id, product_name, description, category_id) VALUES ($1, $2, $3, $4)",
-			func(record []string) ([]interface{}, error) {
-				if len(record) < 4 {
-					return nil, fmt.Errorf("invalid record, expected 4 columns: %v", record)
-				}
-				// This now correctly maps all four columns from the CSV.
-				return []interface{}{record[0], record[1], record[2], record[3]}, nil
-			},
-		)
-		if err != nil {
-			updateJobStatus(db, prodFileName, "FAILED")
-			return fmt.Errorf("failed to process %s: %w", prodFileName, err)
-		}
-	} else {
-		log.Printf("File '%s' already processed. Skipping.", prodFileName)
+	defer prodFile.Close()
+
+	// Read all data into memory first
+	catReader := csv.NewReader(catFile)
+	catReader.Read() // Skip header
+	catRecords, err := catReader.ReadAll()
+	if err != nil {
+		return fmt.Errorf("failed to read categories csv: %w", err)
 	}
 
+	prodReader := csv.NewReader(prodFile)
+	prodReader.Read() // Skip header
+	prodRecords, err := prodReader.ReadAll()
+	if err != nil {
+		return fmt.Errorf("failed to read products csv: %w", err)
+	}
+
+	// Begin a single transaction for the entire operation
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin metadata transaction: %w", err)
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			tx.Rollback()
+			panic(p)
+		} else if err != nil {
+			tx.Rollback()
+		} else {
+			err = tx.Commit()
+		}
+	}()
+
+	// 1. Delete from products first to respect foreign key
+	if _, err = tx.Exec("DELETE FROM products"); err != nil {
+		return fmt.Errorf("failed to clear products table: %w", err)
+	}
+	log.Println("Cleared 'products' table.")
+
+	// 2. Delete from categories
+	if _, err = tx.Exec("DELETE FROM categories"); err != nil {
+		return fmt.Errorf("failed to clear categories table: %w", err)
+	}
+	log.Println("Cleared 'categories' table.")
+
+	// 3. Insert into categories
+	catStmt, err := tx.Prepare("INSERT INTO categories (category_id, category_name) VALUES ($1, $2)")
+	if err != nil {
+		return fmt.Errorf("failed to prepare category statement: %w", err)
+	}
+	for _, record := range catRecords {
+		if len(record) < 2 { continue }
+		if _, err = catStmt.Exec(record[0], record[1]); err != nil {
+			return fmt.Errorf("failed to insert category record %v: %w", record, err)
+		}
+	}
+	log.Println("Loaded new data into 'categories' table.")
+
+	// 4. Insert into products
+	prodStmt, err := tx.Prepare("INSERT INTO products (product_id, product_name, description, category_id) VALUES ($1, $2, $3, $4)")
+	if err != nil {
+		return fmt.Errorf("failed to prepare product statement: %w", err)
+	}
+	for _, record := range prodRecords {
+		if len(record) < 4 { continue }
+		if _, err = prodStmt.Exec(record[0], record[1], record[2], record[3]); err != nil {
+			return fmt.Errorf("failed to insert product record %v: %w", record, err)
+		}
+	}
+	log.Println("Loaded new data into 'products' table.")
+
+	// 5. Update the status for the logical job
+	if err = updateJobStatusInTx(tx, jobName, "SUCCESS"); err != nil {
+		return fmt.Errorf("failed to update metadata job status: %w", err)
+	}
+
+	log.Println("Metadata processing finished successfully.")
 	return nil
 }
 
