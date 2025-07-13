@@ -6,3 +6,4 @@ prophet
 sqlalchemy
 pydantic_settings
 psycopg2-binary
+plotly
