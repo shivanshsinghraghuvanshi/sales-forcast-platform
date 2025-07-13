@@ -104,4 +104,4 @@ def create_sales_batch_files(days=1000, transactions_per_day=1000, **kwargs):
 
 if __name__ == "__main__":
     # You can specify the number of days and transactions per day here
-    create_sales_batch_files(days=100, transactions_per_day=1000)
+    create_sales_batch_files(days=1000, transactions_per_day=1000)
