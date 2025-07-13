@@ -33,30 +33,19 @@ def fetch_training_data(engine):
 def run_backtesting(model, training_df):
     """
     Performs cross-validation to get model accuracy metrics.
-    This function is now more robust to handle datasets of varying sizes.
     """
     print("Running backtesting (cross-validation)...")
     
-    # --- FIX: Calculate parameters based on the actual time span of the data in days ---
-    
-    # First, find the total number of days the data spans.
     data_span_days = (training_df['ds'].max() - training_df['ds'].min()).days
     
-    # The forecast horizon is 10% of the data's time span, with a minimum of 30 days.
     horizon_days = max(30, int(data_span_days * 0.1))
-    
-    # The initial training period should be at least 3x the horizon.
     initial_days = max(90, 3 * horizon_days)
-    
-    # The period between successive tests can be half the horizon.
     period_days = max(15, horizon_days // 2)
 
-    # **Crucial Check**: Ensure there's enough data history for at least one validation fold.
     if data_span_days < initial_days + horizon_days:
         print(f"WARNING: Not enough data history for cross-validation. "
               f"Data spans {data_span_days} days, but require at least {initial_days + horizon_days} days. "
               f"Skipping backtesting for this model.")
-        # Return an empty list to indicate that backtesting was skipped.
         return []
 
     horizon = f'{horizon_days} days'
@@ -70,6 +59,10 @@ def run_backtesting(model, training_df):
     
     print("Backtesting complete. Performance metrics:")
     print(df_p.head())
+    
+    # *** FIX: Convert the 'horizon' column from Timedelta to string ***
+    # This makes the DataFrame JSON serializable.
+    df_p['horizon'] = df_p['horizon'].astype(str)
     
     # Return the performance metrics as a dictionary
     return df_p.to_dict('records')
@@ -112,7 +105,7 @@ def save_model_and_metadata_to_db(engine, model, category, training_df, backtest
                     "model_path": model_filepath,
                     "training_date": datetime.utcnow(),
                     "metadata": json.dumps(metadata),
-                    "metrics": json.dumps(backtesting_metrics) # This can now be an empty list
+                    "metrics": json.dumps(backtesting_metrics)
                 }
             )
             print(f"Successfully inserted new model version '{timestamp}' into database.")
@@ -140,7 +133,6 @@ def train_and_save_models():
         print(f"\n--- Processing category: {category} ---")
         category_df = all_data[all_data['category_id'] == category].copy().reset_index(drop=True)
 
-        # We need at least a few data points to even attempt to train a model.
         if len(category_df) < 50:
             print(f"Skipping category '{category}' due to insufficient data for training.")
             continue
@@ -149,7 +141,6 @@ def train_and_save_models():
             model = Prophet()
             model.fit(category_df[['ds', 'y']])
 
-            # Backtesting is now more robust and may be skipped if data is insufficient.
             backtesting_metrics = run_backtesting(model, category_df)
 
             save_model_and_metadata_to_db(engine, model, category, category_df, backtesting_metrics)
