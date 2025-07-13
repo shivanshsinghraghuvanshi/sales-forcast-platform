@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/csv"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lib/pq"
 	_ "github.com/lib/pq" // PostgreSQL driver
 )
 
@@ -67,7 +69,7 @@ func updateJobStatus(db *sql.DB, fileName, status string) error {
 	return nil
 }
 
-// updateJobStatusInTx updates the status within an existing transaction for atomicity.
+// updateJobStatus updates the status of a file processing job within a transaction.
 func updateJobStatusInTx(tx *sql.Tx, fileName, status string) error {
 	query := `
         INSERT INTO etl_job_status (file_name, status, last_updated)
@@ -79,61 +81,56 @@ func updateJobStatusInTx(tx *sql.Tx, fileName, status string) error {
 	return err
 }
 
-// processSalesData reads, transforms, and loads the daily sales CSV.
-func processSalesData(db *sql.DB) error {
-	log.Println("Starting sales data processing...")
-	todayStr := time.Now().Format("2006-01-02")
-	fileName := fmt.Sprintf("sales_%s.csv", todayStr)
+// processSingleSalesFile reads, transforms, and loads a single sales CSV file.
+// This function is designed to be run concurrently in a goroutine.
+func processSingleSalesFile(db *sql.DB, fileName string) (err error) { // Named return for easier defer handling
 	filePath := filepath.Join(rawSalesPath, fileName)
-
-	isProcessed, err := checkJobStatus(db, fileName)
-	if err != nil {
-		return err
-	}
-	if isProcessed {
-		log.Printf("File '%s' already processed successfully. Skipping.", fileName)
-		return nil
-	}
+	log.Printf("[Worker] Starting to process file: %s", fileName)
 
 	file, err := os.Open(filePath)
 	if err != nil {
-		return fmt.Errorf("could not open sales file: %w", err)
+		return fmt.Errorf("could not open sales file %s: %w", fileName, err)
 	}
 	defer file.Close()
 
 	reader := csv.NewReader(file)
-	reader.Read() // Skip header
+	_, err = reader.Read() // Skip header
+	if err != nil {
+		return fmt.Errorf("could not read header from %s: %w", fileName, err)
+	}
 
+	// --- Transformation Logic ---
 	type HourlyAggregate struct {
 		TotalSales    float64
 		TotalQuantity int
 	}
+	// map[hour_timestamp][category_id]
 	aggregates := make(map[time.Time]map[string]HourlyAggregate)
 
 	for {
 		record, err := reader.Read()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return fmt.Errorf("error reading sales csv: %w", err)
+			return fmt.Errorf("error reading csv %s: %w", fileName, err)
 		}
 
 		if len(record) < 6 {
-			log.Printf("Skipping row with insufficient columns: %v", record)
-			continue
+			continue // Skip malformed rows
 		}
 		quantity, _ := strconv.Atoi(record[3])
 		price, _ := strconv.ParseFloat(record[4], 64)
 		if quantity <= 0 || price <= 0 {
 			continue
 		}
-
-		const layout = "2006-01-02T15:04:05.999999999"
-		timestamp, err := time.Parse(layout, record[5])
+		timestamp, err := time.Parse(time.RFC3339Nano, record[5])
 		if err != nil {
-			log.Printf("Skipping row due to invalid timestamp format: %v, value: '%s'", err, record[5])
-			continue
+			// Fallback for format without nanoseconds
+			timestamp, err = time.Parse("2006-01-02T15:04:05Z", record[5])
+			if err != nil {
+				continue
+			}
 		}
 
 		hour := timestamp.Truncate(time.Hour)
@@ -149,34 +146,128 @@ func processSalesData(db *sql.DB) error {
 		aggregates[hour][categoryID] = agg
 	}
 
+	// --- Load Logic (Transactional) ---
 	tx, err := db.Begin()
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
+		return fmt.Errorf("failed to begin transaction for %s: %w", fileName, err)
 	}
-	defer tx.Rollback()
+	// Use defer with a named return to handle rollback on error
+	defer func() {
+		if p := recover(); p != nil {
+			tx.Rollback()
+			panic(p) // re-throw panic after Rollback
+		} else if err != nil {
+			tx.Rollback() // err is non-nil; don't change it
+		} else {
+			err = tx.Commit() // if err is nil, returns the Commit error
+		}
+	}()
 
 	stmt, err := tx.Prepare("INSERT INTO hourly_sales_by_category (time, category_id, total_sales, total_quantity) VALUES ($1, $2, $3, $4)")
 	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %w", err)
+		return fmt.Errorf("failed to prepare statement for %s: %w", fileName, err)
 	}
 
 	for hour, catMap := range aggregates {
 		for catID, data := range catMap {
 			if _, err := stmt.Exec(hour, catID, data.TotalSales, data.TotalQuantity); err != nil {
-				return fmt.Errorf("failed to execute statement: %w", err)
+				return fmt.Errorf("failed to execute statement for %s: %w", fileName, err)
 			}
 		}
 	}
 
+	// Update the status to SUCCESS within the same transaction
 	if err := updateJobStatusInTx(tx, fileName, "SUCCESS"); err != nil {
-		return fmt.Errorf("failed to update job status within transaction: %w", err)
+		return fmt.Errorf("failed to update job status for %s: %w", fileName, err)
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+	log.Printf("[Worker] Successfully processed and loaded '%s'.", fileName)
+	return nil // err will be set by the deferred commit
+}
+
+// processAllSalesFiles is the main orchestrator function.
+func processAllSalesFiles(db *sql.DB) error {
+	log.Println("--- Starting sales data processing cycle ---")
+
+	// 1. Get all files from the sales directory
+	dirEntries, err := os.ReadDir(rawSalesPath)
+	if err != nil {
+		return fmt.Errorf("failed to read sales directory: %w", err)
 	}
 
-	log.Printf("Successfully processed and loaded '%s'.", fileName)
+	var fileNames []string
+	for _, entry := range dirEntries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".csv") {
+			fileNames = append(fileNames, entry.Name())
+		}
+	}
+
+	if len(fileNames) == 0 {
+		log.Println("No sales files found to process.")
+		return nil
+	}
+
+	// 2. Efficiently get the status of all files in a single query
+	// *** FIX: Wrap the fileNames slice with pq.Array to correctly pass it to the driver ***
+	query := "SELECT file_name, status FROM etl_job_status WHERE file_name = ANY($1)"
+	rows, err := db.Query(query, pq.Array(fileNames))
+	if err != nil {
+		return fmt.Errorf("failed to query job statuses: %w", err)
+	}
+	defer rows.Close()
+
+	jobStatuses := make(map[string]string)
+	for rows.Next() {
+		var fileName, status string
+		if err := rows.Scan(&fileName, &status); err != nil {
+			return fmt.Errorf("failed to scan job status row: %w", err)
+		}
+		jobStatuses[fileName] = status
+	}
+
+	// 3. Determine which files to process (new or failed)
+	var filesToProcess []string
+	for _, fileName := range fileNames {
+		status, exists := jobStatuses[fileName]
+		if !exists || status == "FAILED" {
+			filesToProcess = append(filesToProcess, fileName)
+		}
+	}
+
+	if len(filesToProcess) == 0 {
+		log.Println("All sales files are already processed successfully. Nothing to do.")
+		return nil
+	}
+
+	log.Printf("Found %d files to process: %v", len(filesToProcess), filesToProcess)
+
+	// 4. Process files concurrently
+	var wg sync.WaitGroup
+	for _, fileName := range filesToProcess {
+		wg.Add(1)
+		go func(fName string) {
+			defer wg.Done()
+			// Mark as PENDING before starting
+			tx, _ := db.Begin()
+			if tx != nil {
+				updateJobStatusInTx(tx, fName, "PENDING")
+				tx.Commit()
+			}
+
+			if err := processSingleSalesFile(db, fName); err != nil {
+				log.Printf("[Worker] ERROR processing file %s: %v", fName, err)
+				// On error, mark as FAILED
+				tx, _ := db.Begin()
+				if tx != nil {
+					updateJobStatusInTx(tx, fName, "FAILED")
+					tx.Commit()
+				}
+			}
+		}(fileName)
+	}
+
+	wg.Wait()
+	log.Println("--- Sales data processing cycle finished ---")
 	return nil
 }
 
@@ -379,7 +470,7 @@ func main() {
 		errChan := make(chan error, 3) // Buffer size matches number of goroutines
 
 		processors := map[string]func(*sql.DB) error{
-			"sales":    processSalesData,
+			"sales":    processAllSalesFiles,
 			"metadata": processMetadata,
 			"external": processExternalData,
 		}
@@ -412,7 +503,7 @@ func main() {
 		}
 
 	case "sales":
-		if err := processSalesData(db); err != nil {
+		if err := processAllSalesFiles(db); err != nil {
 			log.Fatalf("Error processing sales data: %v", err)
 		}
 	case "metadata":
