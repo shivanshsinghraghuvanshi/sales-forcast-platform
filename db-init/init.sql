@@ -47,6 +47,32 @@ CREATE TABLE etl_job_status (
     last_updated TIMESTAMPTZ DEFAULT NOW()
 );
 
+
+-- Create the table for model versioning and metadata
+CREATE TABLE model_versions (
+    id SERIAL PRIMARY KEY,
+    category_id TEXT NOT NULL,
+    version TEXT NOT NULL,
+    model_path TEXT NOT NULL,
+    training_date_utc TIMESTAMPTZ NOT NULL,
+    is_latest BOOLEAN DEFAULT FALSE,
+    metadata JSONB,
+    -- NEW: Add a field for storing backtesting accuracy metrics
+    backtesting_metrics JSONB,
+    UNIQUE (category_id, version)
+);
+
+-- NEW: Create a table to store live performance metrics for drift detection
+CREATE TABLE forecast_performance (
+    id SERIAL PRIMARY KEY,
+    model_version_id INTEGER REFERENCES model_versions(id),
+    evaluation_period_start TIMESTAMPTZ NOT NULL,
+    evaluation_period_end TIMESTAMPTZ NOT NULL,
+    metric_name TEXT NOT NULL, -- e.g., 'MAPE', 'RMSE'
+    metric_value NUMERIC NOT NULL,
+    UNIQUE(model_version_id, evaluation_period_end, metric_name)
+);
+
 -- Insert some initial data for demonstration
 INSERT INTO categories (category_id, category_name) VALUES
 ('CAT_01', 'Electronics'),
