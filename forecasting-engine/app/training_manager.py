@@ -22,13 +22,52 @@ def fetch_training_data(engine):
     df = pd.read_sql(query, engine)
     
     df.rename(columns={'time': 'ds', 'total_sales': 'y'}, inplace=True)
-    df['ds'] = pd.to_datetime(df['ds'])
-    
-    # Prophet requires timezone-naive timestamps.
-    df['ds'] = df['ds'].dt.tz_localize(None)
+    df['ds'] = pd.to_datetime(df['ds']).dt.tz_localize(None)
     
     print(f"Successfully fetched and prepared {len(df)} records.")
     return df
+
+def fetch_holidays_for_category(engine, category_id):
+    """
+    Fetches all historical and future promotions for a given category
+    and formats them for Prophet's 'holidays' feature.
+    """
+    print(f"Fetching promotions data for category: {category_id}")
+    # This query gets promotions targeted at the category directly,
+    # AND promotions targeted at any product within that category.
+    query = text("""
+        SELECT 
+            p.promotion_name, p.start_date, p.end_date
+        FROM promotions p
+        WHERE 
+            (p.target_type = 'category' AND p.target_id = :category_id)
+            OR
+            (p.target_type = 'product' AND p.target_id IN (SELECT product_id FROM products WHERE category_id = :category_id))
+    """)
+    
+    promotions_df = pd.read_sql(query, engine, params={"category_id": category_id})
+    
+    if promotions_df.empty:
+        print(f"No promotions found for category: {category_id}")
+        return None
+
+    # Format for Prophet: expand date ranges into individual rows.
+    holidays_list = []
+    for _, row in promotions_df.iterrows():
+        start = pd.to_datetime(row['start_date'])
+        end = pd.to_datetime(row['end_date'])
+        for date in pd.date_range(start, end):
+            holidays_list.append({
+                'holiday': row['promotion_name'],
+                'ds': date
+            })
+            
+    if not holidays_list:
+        return None
+        
+    holidays = pd.DataFrame(holidays_list)
+    print(f"Found and formatted {len(holidays)} promotion days for category {category_id}.")
+    return holidays
 
 def run_backtesting(model, training_df):
     """
@@ -43,9 +82,7 @@ def run_backtesting(model, training_df):
     period_days = max(15, horizon_days // 2)
 
     if data_span_days < initial_days + horizon_days:
-        print(f"WARNING: Not enough data history for cross-validation. "
-              f"Data spans {data_span_days} days, but require at least {initial_days + horizon_days} days. "
-              f"Skipping backtesting for this model.")
+        print(f"WARNING: Not enough data history for cross-validation. Skipping.")
         return []
 
     horizon = f'{horizon_days} days'
@@ -57,14 +94,9 @@ def run_backtesting(model, training_df):
     df_cv = cross_validation(model, initial=initial, period=period, horizon=horizon, parallel="processes")
     df_p = performance_metrics(df_cv)
     
-    print("Backtesting complete. Performance metrics:")
-    print(df_p.head())
+    print("Backtesting complete.")
     
-    # *** FIX: Convert the 'horizon' column from Timedelta to string ***
-    # This makes the DataFrame JSON serializable.
     df_p['horizon'] = df_p['horizon'].astype(str)
-    
-    # Return the performance metrics as a dictionary
     return df_p.to_dict('records')
 
 
@@ -126,7 +158,6 @@ def train_and_save_models():
         print("No training data found. Aborting.")
         return {"status": "failed", "reason": "No data in database"}
 
-    trained_models = []
     categories = all_data['category_id'].unique()
 
     for category in categories:
@@ -138,18 +169,23 @@ def train_and_save_models():
             continue
 
         try:
-            model = Prophet()
+            # *** NEW: Fetch promotions data for the category ***
+            holidays = fetch_holidays_for_category(engine, category)
+            
+            # *** NEW: Pass the holidays DataFrame to the Prophet constructor ***
+            model = Prophet(holidays=holidays)
             model.fit(category_df[['ds', 'y']])
 
             backtesting_metrics = run_backtesting(model, category_df)
 
             save_model_and_metadata_to_db(engine, model, category, category_df, backtesting_metrics)
 
-            trained_models.append(category)
+            print(f"Successfully trained model for '{category}' with promotion data.")
+
         except Exception as e:
             print(f"Failed to complete training for category '{category}'. Error: {e}")
 
-    return {"status": "success", "trained_categories": trained_models}
+    return {"status": "success"}
 
 
 if __name__ == "__main__":

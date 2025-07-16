@@ -1,11 +1,13 @@
 # forecasting-engine/app/prediction_manager.py
 import os
-from typing import Optional
 import joblib
 import logging
+import pandas as pd
 from sqlalchemy import text
 from .db_utils import get_db_engine
 from .custom_exceptions import ModelNotFoundError, ModelLoadError
+# *** NEW: Import the function to get promotion data ***
+from .training_manager import fetch_holidays_for_category
 
 # Set up a logger for this module
 logger = logging.getLogger(__name__)
@@ -47,23 +49,35 @@ def generate_forecast(category_id: str, forecast_horizon: str, period: int) -> d
     Generates a sales forecast for a specific category.
     Raises exceptions on failure.
     """
-    # 1. Find and load the model (will raise exceptions on failure)
+    engine = get_db_engine()
+    
+    # 1. Find and load the model
     model_path = get_latest_model_path(category_id)
     model = load_model(model_path)
 
     # 2. Use the model to make a forecast
     try:
+        # Create the future dataframe
         if forecast_horizon == "daily":
             future_df = model.make_future_dataframe(periods=int(period), freq='D')
         elif forecast_horizon == "monthly":
-            future_df = model.make_future_dataframe(periods=int(period), freq='M')
+            future_df = model.make_future_dataframe(periods=int(period), freq='ME')
         elif forecast_horizon == "yearly":
             future_df = model.make_future_dataframe(periods=int(period), freq='Y')
         else:
-            raise ValueError(f"Invalid forecast_horizon: {forecast_horizon}. Must be 'daily', 'monthly', or 'yearly'.")
+            raise ValueError(f"Invalid forecast_horizon: {forecast_horizon}.")
+            
+        # *** NEW: Fetch future promotions and add them to the future dataframe ***
+        # The model was trained to recognize these holiday names.
+        future_holidays = fetch_holidays_for_category(engine, category_id)
+        if future_holidays is not None:
+            # Prophet automatically uses holiday information present in the future dataframe.
+            future_df = pd.merge(future_df, future_holidays, on='ds', how='left')
+
+        # Generate the forecast
         forecast_df = model.predict(future_df)
 
-        # 3. Format the output (using method chaining instead of inplace=True)
+        # 3. Format the output
         results = (
             forecast_df[['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
             .tail(period)
@@ -80,4 +94,4 @@ def generate_forecast(category_id: str, forecast_horizon: str, period: int) -> d
 
     except Exception as e:
         logger.error(f"An error occurred during prediction for category {category_id}: {e}")
-        raise  # Re-raise the exception to be handled by the API layer
+        raise
