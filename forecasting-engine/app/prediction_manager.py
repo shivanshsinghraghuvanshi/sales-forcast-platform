@@ -1,5 +1,6 @@
 # forecasting-engine/app/prediction_manager.py
 import os
+from typing import Optional
 import joblib
 import logging
 from sqlalchemy import text
@@ -41,7 +42,7 @@ def load_model(model_path: str):
     except Exception as e:
         raise ModelLoadError(f"Failed to load model from {model_path}. Error: {e}")
 
-def generate_forecast(category_id: str, days: int = 30) -> dict:
+def generate_forecast(category_id: str, forecast_horizon: str, period: int) -> dict:
     """
     Generates a sales forecast for a specific category.
     Raises exceptions on failure.
@@ -52,13 +53,20 @@ def generate_forecast(category_id: str, days: int = 30) -> dict:
 
     # 2. Use the model to make a forecast
     try:
-        future_df = model.make_future_dataframe(periods=days)
+        if forecast_horizon == "daily":
+            future_df = model.make_future_dataframe(periods=int(period), freq='D')
+        elif forecast_horizon == "monthly":
+            future_df = model.make_future_dataframe(periods=int(period), freq='M')
+        elif forecast_horizon == "yearly":
+            future_df = model.make_future_dataframe(periods=int(period), freq='Y')
+        else:
+            raise ValueError(f"Invalid forecast_horizon: {forecast_horizon}. Must be 'daily', 'monthly', or 'yearly'.")
         forecast_df = model.predict(future_df)
 
         # 3. Format the output (using method chaining instead of inplace=True)
         results = (
             forecast_df[['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
-            .tail(days)
+            .tail(period)
             .rename(columns={
                 'ds': 'date',
                 'yhat': 'predicted_sales',

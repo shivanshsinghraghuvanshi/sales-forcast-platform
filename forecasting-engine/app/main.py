@@ -34,18 +34,27 @@ async def model_load_exception_handler(request: Request, exc: ModelLoadError):
         content={"detail": str(exc)},
     )
 
-# --- Prediction Endpoint ---
-@app.get("/forecast/{category_id}", response_model=ForecastResponse, tags=["Forecasting"])
-def get_forecast(category_id: str, days: int = 30):
-    """
-    Generates a sales forecast for a given category for a specified number of future days.
-    """
-    if days <= 0:
-        raise HTTPException(status_code=400, detail="Number of days must be positive.")
 
-    # The manager function is now cleaner. Exceptions are handled by the handlers above.
-    forecast_result = generate_forecast(category_id, days)
-    return forecast_result
+# --- Prediction Endpoint ---
+@app.get(
+    "/forecasts/{category_id}",
+    response_model=ForecastResponse,
+    tags=["Forecasting"],
+    summary="Generate sales forecasts with specified horizon and period",
+    description="Generates sales forecasts for a category based on the specified forecast horizon (daily, monthly, or yearly) and the number of periods to forecast.",
+)
+def get_forecast(
+    category_id: str,
+    forecast_horizon: str,
+    period: int,
+) -> ForecastResponse:
+    if forecast_horizon not in ["daily", "monthly", "yearly"]:
+        raise HTTPException(status_code=400, detail="Invalid forecast_horizon. Choose 'daily', 'monthly', or 'yearly'.")
+    if period <= 0:
+        raise HTTPException(status_code=400, detail="Period must be a positive integer.")
+
+    return generate_forecast(category_id, forecast_horizon, period)
+
 
 # --- MLOps & Observability Endpoints ---
 @app.post("/training/run", status_code=202, tags=["MLOps"])
