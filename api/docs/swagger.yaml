@@ -1,5 +1,43 @@
 basePath: /api/v1
 definitions:
+  main.Category:
+    properties:
+      category_id:
+        type: string
+      category_name:
+        type: string
+    type: object
+  main.ETLJobStatus:
+    properties:
+      file_name:
+        type: string
+      id:
+        type: integer
+      last_updated:
+        type: string
+      status:
+        type: string
+    type: object
+  main.ForecastPoint:
+    properties:
+      forecast_date:
+        type: string
+      lower_bound:
+        type: number
+      predicted_sales:
+        type: number
+      upper_bound:
+        type: number
+    type: object
+  main.HistoricalForecast:
+    properties:
+      forecasts:
+        items:
+          $ref: '#/definitions/main.ForecastPoint'
+        type: array
+      model_version_id:
+        type: integer
+    type: object
   main.JobStatusResponse:
     properties:
       category_id:
@@ -15,6 +53,34 @@ definitions:
       updated_at:
         type: string
     type: object
+  main.Product:
+    properties:
+      category_id:
+        type: string
+      description:
+        type: string
+      product_id:
+        type: string
+      product_name:
+        type: string
+    type: object
+  main.Promotion:
+    properties:
+      discount_percentage:
+        type: integer
+      end_date:
+        type: string
+      promotion_id:
+        type: string
+      promotion_name:
+        type: string
+      start_date:
+        type: string
+      target_id:
+        type: string
+      target_type:
+        type: string
+    type: object
 host: localhost:8080
 info:
   contact:
@@ -28,8 +94,82 @@ info:
     name: Apache 2.0
     url: http://www.apache.org/licenses/LICENSE-2.0.html
   title: Sales Forecasting API Gateway (BFF)
-  version: "1.1"
+  version: "1.2"
 paths:
+  /catalog/categories:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves a list of all product categories.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/main.Category'
+            type: array
+        "500":
+          description: Internal server error.
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get All Categories
+      tags:
+      - Catalog
+  /catalog/products:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves a list of all products, with optional filtering by category.
+      parameters:
+      - description: Filter by Category ID
+        in: query
+        name: category_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/main.Product'
+            type: array
+        "500":
+          description: Internal server error.
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get All Products
+      tags:
+      - Catalog
+  /catalog/promotions:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves a list of all promotions.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/main.Promotion'
+            type: array
+        "500":
+          description: Internal server error.
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get All Promotions
+      tags:
+      - Catalog
   /data/preprocess/run:
     post:
       consumes:
@@ -53,6 +193,35 @@ paths:
       summary: Run Data Preprocessing
       tags:
       - Data
+  /etl/jobs:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves a list of the most recent ETL (data processing) job statuses.
+      parameters:
+      - default: 50
+        description: Number of jobs to return
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/main.ETLJobStatus'
+            type: array
+        "500":
+          description: Internal server error.
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get ETL Job Statuses
+      tags:
+      - ETL
   /forecasts/{category_id}:
     get:
       consumes:
@@ -107,6 +276,52 @@ paths:
               type: string
             type: object
       summary: Get Sales Forecast
+      tags:
+      - Forecasting
+  /forecasts/{category_id}/history:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves historical forecasts for a category within a date range,
+        grouped by the model version that generated them.
+      parameters:
+      - description: Category ID
+        in: path
+        name: category_id
+        required: true
+        type: string
+      - description: Start date (YYYY-MM-DD)
+        in: query
+        name: start_date
+        required: true
+        type: string
+      - description: End date (YYYY-MM-DD)
+        in: query
+        name: end_date
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/main.HistoricalForecast'
+            type: array
+        "400":
+          description: Invalid input parameters.
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error.
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get Historical Forecasts
       tags:
       - Forecasting
   /jobs:
@@ -241,6 +456,31 @@ paths:
               type: string
             type: object
       summary: Get Model Performance History
+      tags:
+      - Observability
+  /mlops/observability/versions:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves a list of all model versions from the registry, ordered
+        by training date.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              additionalProperties: true
+              type: object
+            type: array
+        "500":
+          description: Internal server error.
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List All Model Versions
       tags:
       - Observability
   /mlops/observability/versions/{category_id}:

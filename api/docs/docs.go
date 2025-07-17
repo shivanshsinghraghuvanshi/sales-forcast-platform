@@ -23,6 +23,119 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/catalog/categories": {
+            "get": {
+                "description": "Retrieves a list of all product categories.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Catalog"
+                ],
+                "summary": "Get All Categories",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/main.Category"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error.",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/catalog/products": {
+            "get": {
+                "description": "Retrieves a list of all products, with optional filtering by category.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Catalog"
+                ],
+                "summary": "Get All Products",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by Category ID",
+                        "name": "category_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/main.Product"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error.",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/catalog/promotions": {
+            "get": {
+                "description": "Retrieves a list of all promotions.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Catalog"
+                ],
+                "summary": "Get All Promotions",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/main.Promotion"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error.",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/data/preprocess/run": {
             "post": {
                 "description": "Triggers a background job to run the Go-based data preprocessing service.",
@@ -46,6 +159,50 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Failed to start job.",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/etl/jobs": {
+            "get": {
+                "description": "Retrieves a list of the most recent ETL (data processing) job statuses.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ETL"
+                ],
+                "summary": "Get ETL Job Statuses",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 50,
+                        "description": "Number of jobs to return",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/main.ETLJobStatus"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error.",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -111,6 +268,73 @@ const docTemplate = `{
                             "type": "object",
                             "additionalProperties": {
                                 "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid input parameters.",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error.",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/forecasts/{category_id}/history": {
+            "get": {
+                "description": "Retrieves historical forecasts for a category within a date range, grouped by the model version that generated them.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Forecasting"
+                ],
+                "summary": "Get Historical Forecasts",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Category ID",
+                        "name": "category_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start date (YYYY-MM-DD)",
+                        "name": "start_date",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "End date (YYYY-MM-DD)",
+                        "name": "end_date",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/main.HistoricalForecast"
                             }
                         }
                     },
@@ -336,6 +560,42 @@ const docTemplate = `{
                 }
             }
         },
+        "/mlops/observability/versions": {
+            "get": {
+                "description": "Retrieves a list of all model versions from the registry, ordered by training date.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Observability"
+                ],
+                "summary": "List All Model Versions",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": true
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error.",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/mlops/observability/versions/{category_id}": {
             "get": {
                 "description": "Retrieves the complete version history for a specific category's model.",
@@ -418,6 +678,65 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "main.Category": {
+            "type": "object",
+            "properties": {
+                "category_id": {
+                    "type": "string"
+                },
+                "category_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "main.ETLJobStatus": {
+            "type": "object",
+            "properties": {
+                "file_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "last_updated": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "main.ForecastPoint": {
+            "type": "object",
+            "properties": {
+                "forecast_date": {
+                    "type": "string"
+                },
+                "lower_bound": {
+                    "type": "number"
+                },
+                "predicted_sales": {
+                    "type": "number"
+                },
+                "upper_bound": {
+                    "type": "number"
+                }
+            }
+        },
+        "main.HistoricalForecast": {
+            "type": "object",
+            "properties": {
+                "forecasts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/main.ForecastPoint"
+                    }
+                },
+                "model_version_id": {
+                    "type": "integer"
+                }
+            }
+        },
         "main.JobStatusResponse": {
             "type": "object",
             "properties": {
@@ -440,13 +759,56 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "main.Product": {
+            "type": "object",
+            "properties": {
+                "category_id": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "product_id": {
+                    "type": "string"
+                },
+                "product_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "main.Promotion": {
+            "type": "object",
+            "properties": {
+                "discount_percentage": {
+                    "type": "integer"
+                },
+                "end_date": {
+                    "type": "string"
+                },
+                "promotion_id": {
+                    "type": "string"
+                },
+                "promotion_name": {
+                    "type": "string"
+                },
+                "start_date": {
+                    "type": "string"
+                },
+                "target_id": {
+                    "type": "string"
+                },
+                "target_type": {
+                    "type": "string"
+                }
+            }
         }
     }
 }`
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
-	Version:          "1.1",
+	Version:          "1.2",
 	Host:             "localhost:8080",
 	BasePath:         "/api/v1",
 	Schemes:          []string{},

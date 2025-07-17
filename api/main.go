@@ -50,6 +50,41 @@ type JobStatusResponse struct {
 	UpdatedAt    string `json:"updated_at"`
 }
 
+// NEW Structs for Catalog and ETL endpoints
+type Category struct {
+	ID   string `json:"category_id"`
+	Name string `json:"category_name"`
+}
+
+type Product struct {
+	ID          string `json:"product_id"`
+	Name        string `json:"product_name"`
+	Description string `json:"description"`
+	CategoryID  string `json:"category_id"`
+}
+
+type Promotion struct {
+	ID                 string `json:"promotion_id"`
+	Name               string `json:"promotion_name"`
+	StartDate          string `json:"start_date"`
+	EndDate            string `json:"end_date"`
+	DiscountPercentage int    `json:"discount_percentage"`
+	TargetType         string `json:"target_type"`
+	TargetID           string `json:"target_id"`
+}
+
+type ETLJobStatus struct {
+	ID          int    `json:"id"`
+	FileName    string `json:"file_name"`
+	Status      string `json:"status"`
+	LastUpdated string `json:"last_updated"`
+}
+
+type HistoricalForecast struct {
+	ModelVersionID int             `json:"model_version_id"`
+	Forecasts      []ForecastPoint `json:"forecasts"`
+}
+
 // proxyRequest is a helper function to forward a request to the downstream forecasting service.
 func proxyRequest(c *gin.Context, method, downstreamPath string) {
 	downstreamURL := fmt.Sprintf("%s%s", forecastingServiceBaseURL, downstreamPath)
@@ -83,6 +118,8 @@ func proxyRequest(c *gin.Context, method, downstreamPath string) {
 
 	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), body)
 }
+
+// --- Handler Functions ---
 
 // @Summary      Get Sales Forecast
 // @Description  Retrieves a sales forecast for a specific category. Tries to serve from a cache first. If the requested period is not fully cached, it creates an asynchronous job to generate the missing data.
@@ -163,6 +200,62 @@ func getForecastHandler(c *gin.Context) {
 		"message": "Forecast not available in cache. An asynchronous job has been created.",
 		"job_id":  jobID,
 	})
+}
+
+// @Summary      Get Historical Forecasts
+// @Description  Retrieves historical forecasts for a category within a date range, grouped by the model version that generated them.
+// @Tags         Forecasting
+// @Accept       json
+// @Produce      json
+// @Param        category_id path      string  true  "Category ID"
+// @Param        start_date  query     string  true  "Start date (YYYY-MM-DD)"
+// @Param        end_date    query     string  true  "End date (YYYY-MM-DD)"
+// @Success      200         {array}   HistoricalForecast
+// @Failure      400         {object}  map[string]string "Invalid input parameters."
+// @Failure      500         {object}  map[string]string "Internal server error."
+// @Router       /forecasts/{category_id}/history [get]
+func getHistoricalForecastsHandler(c *gin.Context) {
+	categoryID := c.Param("category_id")
+	startDate := c.Query("start_date")
+	endDate := c.Query("end_date")
+
+	query := `
+		SELECT model_version_id, forecast_date, predicted_sales, lower_bound, upper_bound
+		FROM historical_forecasts
+		WHERE category_id = $1 AND forecast_date BETWEEN $2 AND $3
+		ORDER BY model_version_id, forecast_date
+	`
+	rows, err := db.Query(query, categoryID, startDate, endDate)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query historical forecasts."})
+		return
+	}
+	defer rows.Close()
+
+	// Group results by model_version_id
+	results := make(map[int][]ForecastPoint)
+	for rows.Next() {
+		var modelID int
+		var fp ForecastPoint
+		var date time.Time
+		if err := rows.Scan(&modelID, &date, &fp.PredictedSales, &fp.LowerBound, &fp.UpperBound); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan historical forecast data."})
+			return
+		}
+		fp.Date = date.Format("2006-01-02")
+		results[modelID] = append(results[modelID], fp)
+	}
+
+	// Convert map to the final list structure
+	var response []HistoricalForecast
+	for modelID, forecasts := range results {
+		response = append(response, HistoricalForecast{
+			ModelVersionID: modelID,
+			Forecasts:      forecasts,
+		})
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // @Summary      Get Job Status
@@ -374,7 +467,153 @@ func processJob(jobID uuid.UUID, categoryID string, requestParamsJSON []byte) {
 	log.Printf("Job %s completed successfully.", jobID)
 }
 
-// *** NEW: Extracted Handler Functions for Swagger ***
+// --- Extracted Handler Functions for Swagger ---
+
+// @Summary      Get All Categories
+// @Description  Retrieves a list of all product categories.
+// @Tags         Catalog
+// @Accept       json
+// @Produce      json
+// @Success      200      {array}   Category
+// @Failure      500      {object}  map[string]string "Internal server error."
+// @Router       /catalog/categories [get]
+func getCategoriesHandler(c *gin.Context) {
+	rows, err := db.Query("SELECT category_id, category_name FROM categories ORDER BY category_name")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query categories."})
+		return
+	}
+	defer rows.Close()
+
+	var items []Category
+	for rows.Next() {
+		var item Category
+		if err := rows.Scan(&item.ID, &item.Name); err != nil {
+			log.Printf("Error scanning category row: %v", err)
+			continue
+		}
+		items = append(items, item)
+	}
+	c.JSON(http.StatusOK, items)
+}
+
+// @Summary      Get All Products
+// @Description  Retrieves a list of all products, with optional filtering by category.
+// @Tags         Catalog
+// @Accept       json
+// @Produce      json
+// @Param        category_id query     string false "Filter by Category ID"
+// @Success      200         {array}   Product
+// @Failure      500         {object}  map[string]string "Internal server error."
+// @Router       /catalog/products [get]
+func getProductsHandler(c *gin.Context) {
+	query := "SELECT product_id, product_name, description, category_id FROM products"
+	var args []interface{}
+	if categoryID := c.Query("category_id"); categoryID != "" {
+		query += " WHERE category_id = $1"
+		args = append(args, categoryID)
+	}
+	query += " ORDER BY product_name"
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query products."})
+		return
+	}
+	defer rows.Close()
+
+	var items []Product
+	for rows.Next() {
+		var item Product
+		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.CategoryID); err != nil {
+			log.Printf("Error scanning product row: %v", err)
+			continue
+		}
+		items = append(items, item)
+	}
+	c.JSON(http.StatusOK, items)
+}
+
+// @Summary      Get All Promotions
+// @Description  Retrieves a list of all promotions.
+// @Tags         Catalog
+// @Accept       json
+// @Produce      json
+// @Success      200      {array}   Promotion
+// @Failure      500      {object}  map[string]string "Internal server error."
+// @Router       /catalog/promotions [get]
+func getPromotionsHandler(c *gin.Context) {
+	query := "SELECT promotion_id, promotion_name, start_date, end_date, discount_percentage, target_type, target_id FROM promotions ORDER BY start_date"
+	rows, err := db.Query(query)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query promotions."})
+		return
+	}
+	defer rows.Close()
+
+	var items []Promotion
+	for rows.Next() {
+		var item Promotion
+		var startDate, endDate time.Time
+		if err := rows.Scan(&item.ID, &item.Name, &startDate, &endDate, &item.DiscountPercentage, &item.TargetType, &item.TargetID); err != nil {
+			log.Printf("Error scanning promotion row: %v", err)
+			continue
+		}
+		item.StartDate = startDate.Format("2006-01-02")
+		item.EndDate = endDate.Format("2006-01-02")
+		items = append(items, item)
+	}
+	c.JSON(http.StatusOK, items)
+}
+
+// @Summary      Get ETL Job Statuses
+// @Description  Retrieves a list of the most recent ETL (data processing) job statuses.
+// @Tags         ETL
+// @Accept       json
+// @Produce      json
+// @Param        limit  query     int  false  "Number of jobs to return" default(50)
+// @Success      200    {array}   ETLJobStatus
+// @Failure      500    {object}  map[string]string "Internal server error."
+// @Router       /etl/jobs [get]
+func getETLJobsHandler(c *gin.Context) {
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	if limit > 200 {
+		limit = 200
+	}
+
+	query := "SELECT id, file_name, status, last_updated FROM etl_job_status ORDER BY last_updated DESC LIMIT $1"
+	rows, err := db.Query(query, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve ETL job list."})
+		return
+	}
+	defer rows.Close()
+
+	var jobs []ETLJobStatus
+	for rows.Next() {
+		var j ETLJobStatus
+		var lastUpdated time.Time
+		if err := rows.Scan(&j.ID, &j.FileName, &j.Status, &lastUpdated); err != nil {
+			log.Printf("Error scanning ETL job row: %v", err)
+			continue
+		}
+		j.LastUpdated = lastUpdated.Format(time.RFC3339)
+		jobs = append(jobs, j)
+	}
+	c.JSON(http.StatusOK, jobs)
+}
+
+// @Summary      List All Model Versions
+// @Description  Retrieves a list of all model versions from the registry, ordered by training date.
+// @Tags         Observability
+// @Accept       json
+// @Produce      json
+// @Success      200      {object}  []map[string]interface{}
+// @Failure      500      {object}  map[string]string "Internal server error."
+// @Router       /mlops/observability/versions [get]
+func listAllModelVersionsHandler(c *gin.Context) {
+	proxyRequest(c, http.MethodGet, "/observability/versions")
+}
 
 // @Summary      Trigger Model Training
 // @Description  Triggers a background job in the Python forecasting engine to retrain all models and refresh the forecast cache.
@@ -452,7 +691,7 @@ func runPreprocessingHandler(c *gin.Context) {
 
 
 // @title           Sales Forecasting API Gateway (BFF)
-// @version         1.1
+// @version         1.2
 // @description     This is the Backend-for-Frontend (BFF) API gateway for the sales forecasting platform. It serves cached forecasts, manages async jobs, and proxies requests to downstream MLOps services.
 // @contact.name   API Support
 // @contact.url    http://www.example.com/support
@@ -482,6 +721,7 @@ func main() {
 		forecastGroup := apiV1.Group("/forecasts")
 		{
 			forecastGroup.GET("/:category_id", getForecastHandler)
+			forecastGroup.GET("/:category_id/history", getHistoricalForecastsHandler)
 		}
 
 		// --- Job Endpoints ---
@@ -495,8 +735,8 @@ func main() {
 		// --- MLOps Endpoints ---
 		mlopsGroup := apiV1.Group("/mlops")
 		{
-			// *** FIX: Use named handlers so Swagger can find the comments ***
 			mlopsGroup.POST("/training/run", triggerTrainingHandler)
+			mlopsGroup.GET("/observability/versions", listAllModelVersionsHandler)
 			mlopsGroup.GET("/observability/versions/:category_id", getModelVersionsHandler)
 			mlopsGroup.GET("/observability/performance/:version_id", getModelPerformanceHandler)
 		}
@@ -504,8 +744,21 @@ func main() {
 		// --- Data Preprocessing Endpoint ---
 		dataGroup := apiV1.Group("/data")
 		{
-			// *** FIX: Use a named handler so Swagger can find the comments ***
 			dataGroup.POST("/preprocess/run", runPreprocessingHandler)
+		}
+
+		// --- NEW: Catalog Endpoints ---
+		catalogGroup := apiV1.Group("/catalog")
+		{
+			catalogGroup.GET("/categories", getCategoriesHandler)
+			catalogGroup.GET("/products", getProductsHandler)
+			catalogGroup.GET("/promotions", getPromotionsHandler)
+		}
+
+		// --- NEW: ETL Endpoints ---
+		etlGroup := apiV1.Group("/etl")
+		{
+			etlGroup.GET("/jobs", getETLJobsHandler)
 		}
 	}
 
