@@ -122,6 +122,22 @@ create index idx_historical_forecasts_category_date on
    );
 
 
+-- Create the table to manage asynchronous on-demand forecast jobs
+create table async_forecast_jobs (
+   job_id         uuid primary key,
+   category_id    text not null,
+   request_params jsonb not null, -- e.g., {"granularity": "daily", "count": 120}
+   status         varchar(20) not null default 'PENDING', -- PENDING, RUNNING, COMPLETED, FAILED
+   error_message  text,
+   created_at     timestamptz default now(),
+   updated_at     timestamptz default now()
+);
+
+-- Create index
+create index idx_async_jobs_status on
+   async_forecast_jobs (
+      status
+   );
 -- Insert some initial data for demonstration
 insert into categories (
    category_id,

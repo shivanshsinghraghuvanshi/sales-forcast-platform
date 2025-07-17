@@ -1,0 +1,120 @@
+basePath: /api/v1
+definitions:
+  main.JobStatusResponse:
+    properties:
+      created_at:
+        type: string
+      error_message:
+        type: string
+      job_id:
+        type: string
+      status:
+        type: string
+      updated_at:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: support@example.com
+    name: API Support
+    url: http://www.example.com/support
+  description: This is the Backend-For-Frontend (BFF) API gateway for the sales forecasting
+    platform. It serves cached forecasts, manages async jobs, and proxies requests
+    to downstream MLOps services.
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  title: Sales Forecasting API Gateway (BFF)
+  version: "1.0"
+paths:
+  /api/v1/forecasts/{category_id}:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves a sales forecast for a specific category. Tries to serve
+        from a cache first. If the requested period is not fully cached, it creates
+        an asynchronous job to generate the missing data.
+      parameters:
+      - description: Category ID (e.g., CAT_01)
+        in: path
+        name: category_id
+        required: true
+        type: string
+      - description: Forecast Horizon (daily, monthly, yearly)
+        enum:
+        - daily
+        - monthly
+        - yearly
+        in: query
+        name: forecast_horizon
+        required: true
+        type: string
+      - description: Number of periods to forecast
+        in: query
+        name: period
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: A JSON object containing the forecast data.
+          schema:
+            additionalProperties: true
+            type: object
+        "202":
+          description: An asynchronous job has been created.
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid input parameters.
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error.
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get Sales Forecast
+      tags:
+      - Forecasting
+  /api/v1/jobs/{job_id}:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves the status of an asynchronous forecast job.
+      parameters:
+      - description: Job ID (UUID)
+        in: path
+        name: job_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.JobStatusResponse'
+        "404":
+          description: Job not found.
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error.
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get Job Status
+      tags:
+      - Jobs
+swagger: "2.0"
