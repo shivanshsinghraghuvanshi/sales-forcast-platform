@@ -95,7 +95,7 @@ func proxyRequest(c *gin.Context, method, downstreamPath string) {
 // @Success      202              {object}  map[string]string "An asynchronous job has been created."
 // @Failure      400              {object}  map[string]string "Invalid input parameters."
 // @Failure      500              {object}  map[string]string "Internal server error."
-// @Router       /api/v1/forecasts/{category_id} [get]
+// @Router       /forecasts/{category_id} [get]
 func getForecastHandler(c *gin.Context) {
 	categoryID := c.Param("category_id")
 	horizon := c.Query("forecast_horizon")
@@ -173,7 +173,7 @@ func getForecastHandler(c *gin.Context) {
 // @Success      200      {object}  JobStatusResponse
 // @Failure      404      {object}  map[string]string "Job not found."
 // @Failure      500      {object}  map[string]string "Internal server error."
-// @Router       /api/v1/jobs/{job_id} [get]
+// @Router       /jobs/{job_id} [get]
 func getJobStatusHandler(c *gin.Context) {
 	jobID := c.Param("job_id")
 	var status, errMsg sql.NullString
@@ -201,6 +201,7 @@ func getJobStatusHandler(c *gin.Context) {
 
 // --- Background Job Runner ---
 func jobRunner() {
+	fmt.Println("Starting job runner...")
 	ticker := time.NewTicker(10 * time.Second)
 	for range ticker.C {
 		var jobID uuid.UUID
@@ -242,7 +243,7 @@ func processJob(jobID uuid.UUID, categoryID string, requestParamsJSON []byte) {
 		"%s/forecasts/%s/generate-delta?count=%d&granularity=%s",
 		forecastingServiceBaseURL, categoryID, count, url.QueryEscape(granularity),
 	)
-	resp, err := http.Post(deltaURL, "application/json", nil)
+	resp, err := http.Get(deltaURL)
 
 	if err != nil || resp.StatusCode != http.StatusOK {
 		errMsg := "Failed to execute forecast in Python service."
@@ -328,7 +329,7 @@ func main() {
 			// @Produce      json
 			// @Success      202      {object}  map[string]string "Training job accepted."
 			// @Failure      502      {object}  map[string]string "Failed to reach downstream service."
-			// @Router       /api/v1/mlops/training/run [post]
+			// @Router       /mlops/training/run [post]
 			mlopsGroup.POST("/training/run", func(c *gin.Context) {
 				proxyRequest(c, http.MethodPost, "/training/run")
 			})
@@ -341,7 +342,7 @@ func main() {
 			// @Param        category_id   path      string  true  "Category ID"
 			// @Success      200      {object}  []map[string]interface{}
 			// @Failure      404      {object}  map[string]string "Not Found"
-			// @Router       /api/v1/mlops/observability/versions/{category_id} [get]
+			// @Router       /mlops/observability/versions/{category_id} [get]
 			mlopsGroup.GET("/observability/versions/:category_id", func(c *gin.Context) {
 				proxyRequest(c, http.MethodGet, "/observability/versions/"+c.Param("category_id"))
 			})
@@ -354,7 +355,7 @@ func main() {
 			// @Param        version_id   path      int  true  "Model Version ID"
 			// @Success      200      {object}  []map[string]interface{}
 			// @Failure      404      {object}  map[string]string "Not Found"
-			// @Router       /api/v1/mlops/observability/performance/{version_id} [get]
+			// @Router       /mlops/observability/performance/{version_id} [get]
 			mlopsGroup.GET("/observability/performance/:version_id", func(c *gin.Context) {
 				proxyRequest(c, http.MethodGet, "/observability/performance/"+c.Param("version_id"))
 			})
@@ -370,7 +371,7 @@ func main() {
 			// @Produce      json
 			// @Success      202      {object}  map[string]interface{} "Job started."
 			// @Failure      500      {object}  map[string]string "Failed to start job."
-			// @Router       /api/v1/data/preprocess/run [post]
+			// @Router       /data/preprocess/run [post]
 			dataGroup.POST("/preprocess/run", func(c *gin.Context) {
 				log.Println("Received request to run the data preprocessing job.")
 				cmd := exec.Command(preprocessorBinaryPath, "-type=all")

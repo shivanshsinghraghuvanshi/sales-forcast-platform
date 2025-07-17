@@ -28,7 +28,7 @@ info:
   title: Sales Forecasting API Gateway (BFF)
   version: "1.0"
 paths:
-  /api/v1/forecasts/{category_id}:
+  /forecasts/{category_id}:
     get:
       consumes:
       - application/json
@@ -84,7 +84,7 @@ paths:
       summary: Get Sales Forecast
       tags:
       - Forecasting
-  /api/v1/jobs/{job_id}:
+  /jobs/{job_id}:
     get:
       consumes:
       - application/json

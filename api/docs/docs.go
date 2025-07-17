@@ -23,7 +23,7 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
-        "/api/v1/forecasts/{category_id}": {
+        "/forecasts/{category_id}": {
             "get": {
                 "description": "Retrieves a sales forecast for a specific category. Tries to serve from a cache first. If the requested period is not fully cached, it creates an asynchronous job to generate the missing data.",
                 "consumes": [
@@ -102,7 +102,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/jobs/{job_id}": {
+        "/jobs/{job_id}": {
             "get": {
                 "description": "Retrieves the status of an asynchronous forecast job.",
                 "consumes": [
