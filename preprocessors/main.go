@@ -250,7 +250,7 @@ func processAllSalesFiles(db *sql.DB) error {
 	results := make(chan error, len(filesToProcess))
 
 	// Start a fixed number of workers (e.g., 10)
-	for w := 1; w <= 10; w++ {
+	for w := 1; w <= 20; w++ {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()

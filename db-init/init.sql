@@ -7,24 +7,20 @@ CREATE TABLE categories (
 );
 
 -- Create the table for storing relational product metadata
-create table products (
-   product_id   text primary key,
-   product_name text not null,
-   description  text,
-   category_id  text
-      references categories ( category_id )
+CREATE TABLE products (
+    product_id TEXT PRIMARY KEY,
+    product_name TEXT NOT NULL,
+    description TEXT,
+    category_id TEXT REFERENCES categories(category_id)
 );
 
 -- Create the table for storing time-series sales data
-create table hourly_sales_by_category (
-   time           timestamptz not null,
-   category_id    text not null,
-   total_sales    numeric,
-   total_quantity integer,
-    -- *** FIX: Add a UNIQUE constraint on the combination of time and category_id ***
-    -- This is required for the ON CONFLICT clause in the Go processor to work correctly.
-   unique ( time,
-            category_id )
+CREATE TABLE hourly_sales_by_category (
+    time TIMESTAMPTZ NOT NULL,
+    category_id TEXT NOT NULL,
+    total_sales NUMERIC,
+    total_quantity INTEGER,
+    UNIQUE(time, category_id)
 );
 
 -- Turn the sales table into a TimescaleDB hypertable for performance
@@ -49,8 +45,8 @@ create table promotions (
    start_date          date,
    end_date            date,
    discount_percentage integer,
-   target_type         varchar(20), -- Can be 'product' or 'category'
-   target_id           varchar(50)    -- The ID of the product or category being targeted
+   target_type         varchar(20),
+   target_id           varchar(50)
 );
 
 -- Create the table for model versioning and metadata
@@ -68,20 +64,71 @@ create table model_versions (
 );
 
 -- Create a table to store live performance metrics for drift detection
-CREATE TABLE forecast_performance (
-    id SERIAL PRIMARY KEY,
-    model_version_id INTEGER REFERENCES model_versions(id),
-    evaluation_period_start TIMESTAMPTZ NOT NULL,
-    evaluation_period_end TIMESTAMPTZ NOT NULL,
-    metric_name TEXT NOT NULL, -- e.g., 'MAPE', 'RMSE'
-    metric_value NUMERIC NOT NULL,
-    UNIQUE(model_version_id, evaluation_period_end, metric_name)
+create table forecast_performance (
+   id                      serial primary key,
+   model_version_id        integer
+      references model_versions ( id ),
+   evaluation_period_start timestamptz not null,
+   evaluation_period_end   timestamptz not null,
+   metric_name             text not null, -- e.g., 'MAPE', 'RMSE'
+   metric_value            numeric not null,
+   unique ( model_version_id,
+            evaluation_period_end,
+            metric_name )
 );
 
+-- NEW: Create the table for serving the LATEST pre-calculated forecasts (the cache)
+create table live_forecasts (
+   id               serial primary key,
+   model_version_id integer
+      references model_versions ( id ),
+   category_id      text not null,
+   forecast_date    date not null,
+   predicted_sales  numeric,
+   lower_bound      numeric,
+   upper_bound      numeric,
+   granularity      varchar(10) not null,
+    -- A unique constraint to ensure only one prediction per category/date/granularity exists
+   unique ( category_id,
+            forecast_date,
+            granularity )
+);
+-- Add an index for fast lookups by category and granularity
+create index idx_live_forecasts_category_granularity on
+   live_forecasts (
+      category_id,
+      granularity
+   );
+
+
+-- NEW: Create the table for storing historical forecasts for analysis
+create table historical_forecasts (
+   id               serial primary key,
+   model_version_id integer
+      references model_versions ( id ),
+   category_id      text not null,
+   forecast_date    date not null,
+   predicted_sales  numeric,
+   lower_bound      numeric,
+   upper_bound      numeric,
+   granularity      varchar(10) not null,
+   archived_at      timestamptz default now()
+);
+-- Add an index for faster analysis queries
+create index idx_historical_forecasts_category_date on
+   historical_forecasts (
+      category_id,
+      forecast_date
+   );
+
+
 -- Insert some initial data for demonstration
-INSERT INTO categories (category_id, category_name) VALUES
-('CAT_01', 'Electronics'),
-('CAT_02', 'Home & Kitchen'),
-('CAT_03', 'Apparel'),
-('CAT_04', 'Books'),
-('CAT_05', 'Sports');
+insert into categories (
+   category_id,
+   category_name
+) values ( 'CAT_01',
+           'Electronics' ),( 'CAT_02',
+                             'Home & Kitchen' ),( 'CAT_03',
+                                                  'Apparel' ),( 'CAT_04',
+                                                                'Books' ),( 'CAT_05',
+                                                                            'Sports' );

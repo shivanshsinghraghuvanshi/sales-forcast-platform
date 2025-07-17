@@ -11,12 +11,35 @@ from .custom_exceptions import ModelNotFoundError, ModelLoadError
 from .prediction_manager import generate_forecast
 from .training_manager import train_and_save_models
 from .observability_manager import get_model_versions_for_category, get_performance_for_model_version
+from .precalculation_manager import run_precalculation_job
+
 
 app = FastAPI(
     title="Sales Forecasting API & MLOps",
     description="An API to get sales forecasts and manage the model lifecycle.",
     version="2.0.0"
 )
+
+# --- Background Task Definition ---
+
+def run_training_and_precalculation():
+    """
+    A single background task that chains the training and pre-calculation jobs.
+    """
+    print("--- Starting full model refresh pipeline ---")
+    
+    # Step 1: Train all the new models
+    training_result = train_and_save_models()
+    
+    # Step 2: If training was successful, refresh the forecast cache
+    if training_result.get("status") == "success":
+        print("--- Model training successful, proceeding to forecast pre-calculation ---")
+        run_precalculation_job()
+    else:
+        print(f"--- Model training failed. Skipping forecast pre-calculation. Reason: {training_result.get('reason')} ---")
+        
+    print("--- Full model refresh pipeline finished ---")
+
 
 # --- Exception Handlers ---
 # This makes our error handling clean and centralized.
@@ -58,12 +81,14 @@ def get_forecast(
 
 # --- MLOps & Observability Endpoints ---
 @app.post("/training/run", status_code=202, tags=["MLOps"])
-def trigger_model_training(background_tasks: BackgroundTasks):
+def trigger_full_refresh(background_tasks: BackgroundTasks):
     """
-    Triggers a background job to retrain all models for all categories.
+    Triggers a background job to retrain all models AND refresh the forecast cache.
     """
-    background_tasks.add_task(train_and_save_models)
-    return {"message": "Model training job started in the background."}
+    print("Received request to run the full training and pre-calculation pipeline.")
+    # *** NEW: Use the chained background task ***
+    background_tasks.add_task(run_training_and_precalculation)
+    return {"message": "Full model training and cache refresh job started in the background."}
 
 @app.get("/observability/versions/{category_id}", response_model=List[ModelVersion], tags=["Observability"])
 def get_model_version_history(category_id: str):
