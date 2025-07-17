@@ -30,6 +30,29 @@ info:
   title: Sales Forecasting API Gateway (BFF)
   version: "1.1"
 paths:
+  /data/preprocess/run:
+    post:
+      consumes:
+      - application/json
+      description: Triggers a background job to run the Go-based data preprocessing
+        service.
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Job started.
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to start job.
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Run Data Preprocessing
+      tags:
+      - Data
   /forecasts/{category_id}:
     get:
       consumes:
@@ -189,4 +212,90 @@ paths:
       summary: Cancel a Job
       tags:
       - Jobs
+  /mlops/observability/performance/{version_id}:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves the live performance history for a specific model version
+        ID.
+      parameters:
+      - description: Model Version ID
+        in: path
+        name: version_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              additionalProperties: true
+              type: object
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get Model Performance History
+      tags:
+      - Observability
+  /mlops/observability/versions/{category_id}:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves the complete version history for a specific category's
+        model.
+      parameters:
+      - description: Category ID
+        in: path
+        name: category_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              additionalProperties: true
+              type: object
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get Model Version History
+      tags:
+      - Observability
+  /mlops/training/run:
+    post:
+      consumes:
+      - application/json
+      description: Triggers a background job in the Python forecasting engine to retrain
+        all models and refresh the forecast cache.
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Training job accepted.
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "502":
+          description: Failed to reach downstream service.
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Trigger Model Training
+      tags:
+      - MLOps
 swagger: "2.0"

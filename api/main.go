@@ -374,6 +374,83 @@ func processJob(jobID uuid.UUID, categoryID string, requestParamsJSON []byte) {
 	log.Printf("Job %s completed successfully.", jobID)
 }
 
+// *** NEW: Extracted Handler Functions for Swagger ***
+
+// @Summary      Trigger Model Training
+// @Description  Triggers a background job in the Python forecasting engine to retrain all models and refresh the forecast cache.
+// @Tags         MLOps
+// @Accept       json
+// @Produce      json
+// @Success      202      {object}  map[string]string "Training job accepted."
+// @Failure      502      {object}  map[string]string "Failed to reach downstream service."
+// @Router       /mlops/training/run [post]
+func triggerTrainingHandler(c *gin.Context) {
+	proxyRequest(c, http.MethodPost, "/training/run")
+}
+
+// @Summary      Get Model Version History
+// @Description  Retrieves the complete version history for a specific category's model.
+// @Tags         Observability
+// @Accept       json
+// @Produce      json
+// @Param        category_id   path      string  true  "Category ID"
+// @Success      200      {object}  []map[string]interface{}
+// @Failure      404      {object}  map[string]string "Not Found"
+// @Router       /mlops/observability/versions/{category_id} [get]
+func getModelVersionsHandler(c *gin.Context) {
+	proxyRequest(c, http.MethodGet, "/observability/versions/"+c.Param("category_id"))
+}
+
+// @Summary      Get Model Performance History
+// @Description  Retrieves the live performance history for a specific model version ID.
+// @Tags         Observability
+// @Accept       json
+// @Produce      json
+// @Param        version_id   path      int  true  "Model Version ID"
+// @Success      200      {object}  []map[string]interface{}
+// @Failure      404      {object}  map[string]string "Not Found"
+// @Router       /mlops/observability/performance/{version_id} [get]
+func getModelPerformanceHandler(c *gin.Context) {
+	proxyRequest(c, http.MethodGet, "/observability/performance/"+c.Param("version_id"))
+}
+
+// @Summary      Run Data Preprocessing
+// @Description  Triggers a background job to run the Go-based data preprocessing service.
+// @Tags         Data
+// @Accept       json
+// @Produce      json
+// @Success      202      {object}  map[string]interface{} "Job started."
+// @Failure      500      {object}  map[string]string "Failed to start job."
+// @Router       /data/preprocess/run [post]
+func runPreprocessingHandler(c *gin.Context) {
+	log.Println("Received request to run the data preprocessing job.")
+	cmd := exec.Command(preprocessorBinaryPath, "-type=all")
+	cmd.Stdout = log.Writer()
+	cmd.Stderr = log.Writer()
+
+	err := cmd.Start()
+	if err != nil {
+		log.Printf("ERROR: Failed to start preprocessor binary: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start preprocessing job."})
+		return
+	}
+
+	c.JSON(http.StatusAccepted, gin.H{
+		"message": "Data preprocessing job started in the background.",
+		"pid":     cmd.Process.Pid,
+	})
+
+	go func() {
+		err := cmd.Wait()
+		if err != nil {
+			log.Printf("Preprocessing job (PID: %d) finished with an error: %v", cmd.Process.Pid, err)
+		} else {
+			log.Printf("Preprocessing job (PID: %d) finished successfully.", cmd.Process.Pid)
+		}
+	}()
+}
+
+
 // @title           Sales Forecasting API Gateway (BFF)
 // @version         1.1
 // @description     This is the Backend-for-Frontend (BFF) API gateway for the sales forecasting platform. It serves cached forecasts, manages async jobs, and proxies requests to downstream MLOps services.
@@ -410,7 +487,6 @@ func main() {
 		// --- Job Endpoints ---
 		jobsGroup := apiV1.Group("/jobs")
 		{
-			// *** NEW: Add handlers for listing and canceling jobs ***
 			jobsGroup.GET("", listJobsHandler)
 			jobsGroup.GET("/:job_id", getJobStatusHandler)
 			jobsGroup.POST("/:job_id/cancel", cancelJobHandler)
@@ -419,83 +495,17 @@ func main() {
 		// --- MLOps Endpoints ---
 		mlopsGroup := apiV1.Group("/mlops")
 		{
-			// @Summary      Trigger Model Training
-			// @Description  Triggers a background job in the Python forecasting engine to retrain all models and refresh the forecast cache.
-			// @Tags         MLOps
-			// @Accept       json
-			// @Produce      json
-			// @Success      202      {object}  map[string]string "Training job accepted."
-			// @Failure      502      {object}  map[string]string "Failed to reach downstream service."
-			// @Router       /mlops/training/run [post]
-			mlopsGroup.POST("/training/run", func(c *gin.Context) {
-				proxyRequest(c, http.MethodPost, "/training/run")
-			})
-
-			// @Summary      Get Model Version History
-			// @Description  Retrieves the complete version history for a specific category's model.
-			// @Tags         Observability
-			// @Accept       json
-			// @Produce      json
-			// @Param        category_id   path      string  true  "Category ID"
-			// @Success      200      {object}  []map[string]interface{}
-			// @Failure      404      {object}  map[string]string "Not Found"
-			// @Router       /mlops/observability/versions/{category_id} [get]
-			mlopsGroup.GET("/observability/versions/:category_id", func(c *gin.Context) {
-				proxyRequest(c, http.MethodGet, "/observability/versions/"+c.Param("category_id"))
-			})
-
-			// @Summary      Get Model Performance History
-			// @Description  Retrieves the live performance history for a specific model version ID.
-			// @Tags         Observability
-			// @Accept       json
-			// @Produce      json
-			// @Param        version_id   path      int  true  "Model Version ID"
-			// @Success      200      {object}  []map[string]interface{}
-			// @Failure      404      {object}  map[string]string "Not Found"
-			// @Router       /mlops/observability/performance/{version_id} [get]
-			mlopsGroup.GET("/observability/performance/:version_id", func(c *gin.Context) {
-				proxyRequest(c, http.MethodGet, "/observability/performance/"+c.Param("version_id"))
-			})
+			// *** FIX: Use named handlers so Swagger can find the comments ***
+			mlopsGroup.POST("/training/run", triggerTrainingHandler)
+			mlopsGroup.GET("/observability/versions/:category_id", getModelVersionsHandler)
+			mlopsGroup.GET("/observability/performance/:version_id", getModelPerformanceHandler)
 		}
 
 		// --- Data Preprocessing Endpoint ---
 		dataGroup := apiV1.Group("/data")
 		{
-			// @Summary      Run Data Preprocessing
-			// @Description  Triggers a background job to run the Go-based data preprocessing service.
-			// @Tags         Data
-			// @Accept       json
-			// @Produce      json
-			// @Success      202      {object}  map[string]interface{} "Job started."
-			// @Failure      500      {object}  map[string]string "Failed to start job."
-			// @Router       /data/preprocess/run [post]
-			dataGroup.POST("/preprocess/run", func(c *gin.Context) {
-				log.Println("Received request to run the data preprocessing job.")
-				cmd := exec.Command(preprocessorBinaryPath, "-type=all")
-				cmd.Stdout = log.Writer()
-				cmd.Stderr = log.Writer()
-
-				err := cmd.Start()
-				if err != nil {
-					log.Printf("ERROR: Failed to start preprocessor binary: %v", err)
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start preprocessing job."})
-					return
-				}
-
-				c.JSON(http.StatusAccepted, gin.H{
-					"message": "Data preprocessing job started in the background.",
-					"pid":     cmd.Process.Pid,
-				})
-
-				go func() {
-					err := cmd.Wait()
-					if err != nil {
-						log.Printf("Preprocessing job (PID: %d) finished with an error: %v", cmd.Process.Pid, err)
-					} else {
-						log.Printf("Preprocessing job (PID: %d) finished successfully.", cmd.Process.Pid)
-					}
-				}()
-			})
+			// *** FIX: Use a named handler so Swagger can find the comments ***
+			dataGroup.POST("/preprocess/run", runPreprocessingHandler)
 		}
 	}
 

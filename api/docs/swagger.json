@@ -17,6 +17,39 @@
     "host": "localhost:8080",
     "basePath": "/api/v1",
     "paths": {
+        "/data/preprocess/run": {
+            "post": {
+                "description": "Triggers a background job to run the Go-based data preprocessing service.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Data"
+                ],
+                "summary": "Run Data Preprocessing",
+                "responses": {
+                    "202": {
+                        "description": "Job started.",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to start job.",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/forecasts/{category_id}": {
             "get": {
                 "description": "Retrieves a sales forecast for a specific category. Tries to serve from a cache first. If the requested period is not fully cached, it creates an asynchronous job to generate the missing data.",
@@ -242,6 +275,131 @@
                     },
                     "500": {
                         "description": "Internal server error.",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/mlops/observability/performance/{version_id}": {
+            "get": {
+                "description": "Retrieves the live performance history for a specific model version ID.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Observability"
+                ],
+                "summary": "Get Model Performance History",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Model Version ID",
+                        "name": "version_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": true
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/mlops/observability/versions/{category_id}": {
+            "get": {
+                "description": "Retrieves the complete version history for a specific category's model.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Observability"
+                ],
+                "summary": "Get Model Version History",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Category ID",
+                        "name": "category_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": true
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/mlops/training/run": {
+            "post": {
+                "description": "Triggers a background job in the Python forecasting engine to retrain all models and refresh the forecast cache.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "MLOps"
+                ],
+                "summary": "Trigger Model Training",
+                "responses": {
+                    "202": {
+                        "description": "Training job accepted.",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "Failed to reach downstream service.",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
