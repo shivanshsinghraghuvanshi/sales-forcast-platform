@@ -43,6 +43,7 @@ type ForecastPoint struct {
 
 type JobStatusResponse struct {
 	JobID        string `json:"job_id"`
+	CategoryID   string `json:"category_id"`
 	Status       string `json:"status"`
 	ErrorMessage string `json:"error_message,omitempty"`
 	CreatedAt    string `json:"created_at"`
@@ -176,11 +177,11 @@ func getForecastHandler(c *gin.Context) {
 // @Router       /jobs/{job_id} [get]
 func getJobStatusHandler(c *gin.Context) {
 	jobID := c.Param("job_id")
-	var status, errMsg sql.NullString
+	var status, errMsg, categoryID sql.NullString
 	var createdAt, updatedAt time.Time
 
-	query := "SELECT status, error_message, created_at, updated_at FROM async_forecast_jobs WHERE job_id = $1"
-	err := db.QueryRow(query, jobID).Scan(&status, &errMsg, &createdAt, &updatedAt)
+	query := "SELECT job_id, category_id, status, error_message, created_at, updated_at FROM async_forecast_jobs WHERE job_id = $1"
+	err := db.QueryRow(query, jobID).Scan(&jobID, &categoryID, &status, &errMsg, &createdAt, &updatedAt)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Job not found."})
 		return
@@ -192,11 +193,104 @@ func getJobStatusHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, JobStatusResponse{
 		JobID:        jobID,
+		CategoryID:   categoryID.String,
 		Status:       status.String,
 		ErrorMessage: errMsg.String,
 		CreatedAt:    createdAt.Format(time.RFC3339),
 		UpdatedAt:    updatedAt.Format(time.RFC3339),
 	})
+}
+
+// @Summary      List Recent Jobs
+// @Description  Retrieves a list of the most recent asynchronous forecast jobs.
+// @Tags         Jobs
+// @Accept       json
+// @Produce      json
+// @Param        limit  query     int  false  "Number of jobs to return" default(20)
+// @Success      200    {array}   JobStatusResponse
+// @Failure      500    {object}  map[string]string "Internal server error."
+// @Router       /jobs [get]
+func listJobsHandler(c *gin.Context) {
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	if limit > 100 {
+		limit = 100 // Cap the limit for performance
+	}
+
+	query := "SELECT job_id, category_id, status, error_message, created_at, updated_at FROM async_forecast_jobs ORDER BY created_at DESC LIMIT $1"
+	rows, err := db.Query(query, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve job list."})
+		return
+	}
+	defer rows.Close()
+
+	var jobs []JobStatusResponse
+	for rows.Next() {
+		var j JobStatusResponse
+		var jobID uuid.UUID
+		var status, errMsg, categoryID sql.NullString
+		var createdAt, updatedAt time.Time
+		if err := rows.Scan(&jobID, &categoryID, &status, &errMsg, &createdAt, &updatedAt); err != nil {
+			log.Printf("Error scanning job row: %v", err)
+			continue
+		}
+		j.JobID = jobID.String()
+		j.CategoryID = categoryID.String
+		j.Status = status.String
+		j.ErrorMessage = errMsg.String
+		j.CreatedAt = createdAt.Format(time.RFC3339)
+		j.UpdatedAt = updatedAt.Format(time.RFC3339)
+		jobs = append(jobs, j)
+	}
+
+	c.JSON(http.StatusOK, jobs)
+}
+
+// @Summary      Cancel a Job
+// @Description  Cancels a PENDING asynchronous forecast job.
+// @Tags         Jobs
+// @Accept       json
+// @Produce      json
+// @Param        job_id   path      string  true  "Job ID (UUID) to cancel"
+// @Success      200      {object}  map[string]string "Job cancelled successfully."
+// @Failure      404      {object}  map[string]string "Job not found."
+// @Failure      409      {object}  map[string]string "Job is not in a cancellable state (must be PENDING)."
+// @Failure      500      {object}  map[string]string "Internal server error."
+// @Router       /jobs/{job_id}/cancel [post]
+func cancelJobHandler(c *gin.Context) {
+	jobID := c.Param("job_id")
+
+	// Atomically update the job to CANCELLED only if it is currently PENDING.
+	query := `
+		UPDATE async_forecast_jobs
+		SET status = 'CANCELLED', updated_at = NOW()
+		WHERE job_id = $1 AND status = 'PENDING'
+	`
+	result, err := db.Exec(query, jobID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to execute cancel operation."})
+		return
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check operation result."})
+		return
+	}
+
+	if rowsAffected == 0 {
+		// Check why it failed: was the job not found, or was it not in a PENDING state?
+		var status string
+		err := db.QueryRow("SELECT status FROM async_forecast_jobs WHERE job_id = $1", jobID).Scan(&status)
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Job not found."})
+		} else {
+			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("Job is not in a cancellable state. Current status: %s", status)})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Job cancelled successfully."})
 }
 
 // --- Background Job Runner ---
@@ -243,7 +337,7 @@ func processJob(jobID uuid.UUID, categoryID string, requestParamsJSON []byte) {
 		"%s/forecasts/%s/generate-delta?count=%d&granularity=%s",
 		forecastingServiceBaseURL, categoryID, count, url.QueryEscape(granularity),
 	)
-	resp, err := http.Get(deltaURL)
+	resp, err := http.Post(deltaURL, "application/json", nil)
 
 	if err != nil || resp.StatusCode != http.StatusOK {
 		errMsg := "Failed to execute forecast in Python service."
@@ -281,8 +375,8 @@ func processJob(jobID uuid.UUID, categoryID string, requestParamsJSON []byte) {
 }
 
 // @title           Sales Forecasting API Gateway (BFF)
-// @version         1.0
-// @description     This is the Backend-For-Frontend (BFF) API gateway for the sales forecasting platform. It serves cached forecasts, manages async jobs, and proxies requests to downstream MLOps services.
+// @version         1.1
+// @description     This is the Backend-for-Frontend (BFF) API gateway for the sales forecasting platform. It serves cached forecasts, manages async jobs, and proxies requests to downstream MLOps services.
 // @contact.name   API Support
 // @contact.url    http://www.example.com/support
 // @contact.email  support@example.com
@@ -316,7 +410,10 @@ func main() {
 		// --- Job Endpoints ---
 		jobsGroup := apiV1.Group("/jobs")
 		{
+			// *** NEW: Add handlers for listing and canceling jobs ***
+			jobsGroup.GET("", listJobsHandler)
 			jobsGroup.GET("/:job_id", getJobStatusHandler)
+			jobsGroup.POST("/:job_id/cancel", cancelJobHandler)
 		}
 
 		// --- MLOps Endpoints ---
