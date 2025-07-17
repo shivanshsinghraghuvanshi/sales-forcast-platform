@@ -95,3 +95,69 @@ def generate_forecast(category_id: str, forecast_horizon: str, period: int) -> d
     except Exception as e:
         logger.error(f"An error occurred during prediction for category {category_id}: {e}")
         raise
+
+
+def generate_delta_forecast(category_id: str, count: int, granularity: str) -> dict:
+    """
+    Generates a forecast for a given number of future periods, starting from the last cached date.
+    """
+    engine = get_db_engine()
+    model_path = get_latest_model_path(category_id)
+    model = load_model(model_path)
+
+    try:
+        # 1. Find the last date available in the cache for this granularity
+        last_date_query = text("""
+            SELECT MAX(forecast_date) FROM live_forecasts
+            WHERE category_id = :category_id AND granularity = :granularity
+        """)
+        with engine.connect() as connection:
+            last_cached_date = connection.execute(
+                last_date_query, 
+                {"category_id": category_id, "granularity": granularity}
+            ).scalar_one_or_none()
+
+        # If cache is empty, start forecasting from today
+        if last_cached_date is None:
+            last_cached_date = pd.Timestamp.now().date()
+
+        # 2. *** FIX: Manually construct the future date range ***
+        # This ensures the dates are always correct, regardless of the model's history.
+        freq_map = {'daily': 'D', 'monthly': 'M', 'yearly': 'Y'}
+        if granularity not in freq_map:
+            raise ValueError(f"Invalid granularity '{granularity}'.")
+        
+        # Calculate the start date for our new forecast range
+        start_date = pd.to_datetime(last_cached_date) + pd.DateOffset(days=1)
+        
+        # Create the date range manually
+        future_dates = pd.date_range(start=start_date, periods=count, freq=freq_map[granularity])
+        future_df = pd.DataFrame({'ds': future_dates})
+        
+        # 3. Incorporate holidays/promotions
+        future_holidays = fetch_holidays_for_category(engine, category_id)
+        if future_holidays is not None:
+            future_df = pd.merge(future_df, future_holidays, on='ds', how='left')
+
+        # If after the merge, the dataframe is empty, we can't predict.
+        if future_df.empty:
+            raise ValueError("Dataframe has no rows after date range creation and holiday merge. Cannot predict.")
+
+        forecast_df = model.predict(future_df)
+
+        # 4. Format and return the results
+        results = (
+            forecast_df[['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
+            .rename(columns={'ds': 'forecast_date', 'yhat': 'predicted_sales', 'yhat_lower': 'lower_bound', 'yhat_upper': 'upper_bound'})
+        )
+        results['category_id'] = category_id
+        with engine.connect() as conn:
+            version_query = text("SELECT id FROM model_versions WHERE model_path = :path")
+            results['model_version_id'] = conn.execute(version_query, {"path": model_path}).scalar_one()
+        results['granularity'] = granularity
+
+        return results.to_dict('records')
+
+    except Exception as e:
+        logger.error(f"An error occurred during delta prediction for category {category_id}: {e}")
+        raise

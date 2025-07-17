@@ -1,14 +1,14 @@
 # forecasting-engine/app/main.py
-from typing import List
+from typing import List, Literal, Annotated
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, Query
 from fastapi.responses import JSONResponse
 
 # Import our new schemas and exceptions
 from .schemas import ForecastResponse, ModelVersion, ModelPerformance
 from .custom_exceptions import ModelNotFoundError, ModelLoadError
 
-from .prediction_manager import generate_forecast
+from .prediction_manager import generate_forecast, generate_delta_forecast
 from .training_manager import train_and_save_models
 from .observability_manager import get_model_versions_for_category, get_performance_for_model_version
 from .precalculation_manager import run_precalculation_job
@@ -77,6 +77,29 @@ def get_forecast(
         raise HTTPException(status_code=400, detail="Period must be a positive integer.")
 
     return generate_forecast(category_id, forecast_horizon, period)
+
+
+# --- NEW Endpoint for On-Demand Delta Forecasts ---
+@app.get("/forecasts/{category_id}/generate-delta", tags=["Forecasting"])
+def generate_on_demand_delta_forecast(
+    category_id: str,
+    count: Annotated[int, Query(gt=0, description="The number of future periods to forecast.")],
+    granularity: Annotated[Literal['daily', 'monthly', 'yearly'], Query(description="The time granularity for the forecast.")]
+):
+    """
+    Generates a forecast for a given number of future periods, starting from the last cached date.
+    This is called by the Go BFF during a cache miss to fill in missing forecast data.
+    """
+    try:
+        forecast_result = generate_delta_forecast(
+            category_id, count, granularity
+        )
+        return forecast_result
+    except (ModelNotFoundError, ModelLoadError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        # In a real app, you would have more specific error handling and logging
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
 
 
 # --- MLOps & Observability Endpoints ---
