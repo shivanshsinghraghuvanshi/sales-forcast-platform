@@ -430,7 +430,7 @@ func processJob(jobID uuid.UUID, categoryID string, requestParamsJSON []byte) {
 		"%s/forecasts/%s/generate-delta?count=%d&granularity=%s",
 		forecastingServiceBaseURL, categoryID, count, url.QueryEscape(granularity),
 	)
-	resp, err := http.Post(deltaURL, "application/json", nil)
+	resp, err := http.Get(deltaURL)
 
 	if err != nil || resp.StatusCode != http.StatusOK {
 		errMsg := "Failed to execute forecast in Python service."

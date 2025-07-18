@@ -1,0 +1,13 @@
+# docker-compose.mcp.yaml
+version: '3.8'
+services:
+  mcp-server:
+    image: "some-mcp-server-image:latest" # Replace with the actual image
+    container_name: mcp_server
+    ports:
+      - "8888:8888" # Exposing the MCP server on port 8888
+    volumes:
+      # Mount a local folder containing your tool definitions
+      - ./mcp_tools:/tools
+    environment:
+      - MCP_TOOL_DIR=/tools

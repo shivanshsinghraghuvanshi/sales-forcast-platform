@@ -1,0 +1,18 @@
+{
+  "tools": [
+    {
+      "name": "SalesForecastingAPI",
+      "description": "A tool to get sales forecasts and check the status of background jobs.",
+      "openapi": {
+        "url": "http://localhost:8080/swagger/doc.json"
+      }
+    }
+  ],
+  "models": [
+    {
+      "title": "Claude 3.5 Sonnet",
+      "provider": "anthropic",
+      "model": "claude-3-5-sonnet-20240620"
+    }
+  ]
+}

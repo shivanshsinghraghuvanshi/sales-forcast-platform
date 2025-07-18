@@ -1,0 +1,63 @@
+{
+  "name": "sales_forecasting_system",
+  "description": "A tool to get sales forecasts, check model performance, and manage data processing jobs for a commerce platform.",
+  "tools": [
+    {
+      "name": "get_sales_forecast",
+      "description": "Retrieves a sales forecast for a specific product category. If the data isn't cached, it creates a background job.",
+      "api_endpoint": {
+        "url": "http://localhost:8080/api/v1/forecasts/{category_id}",
+        "method": "GET"
+      },
+      "parameters": [
+        {
+          "name": "category_id",
+          "in": "path",
+          "description": "The unique ID of the category, e.g., 'CAT_01' for Electronics.",
+          "required": true,
+          "schema": { "type": "string" }
+        },
+        {
+          "name": "forecast_horizon",
+          "in": "query",
+          "description": "The time period for the forecast, either 'daily', 'monthly', or 'yearly'.",
+          "required": true,
+          "schema": { "type": "string", "enum": ["daily", "monthly", "yearly"] }
+        },
+        {
+          "name": "period",
+          "in": "query",
+          "description": "The number of periods (days, months, or years) to forecast into the future.",
+          "required": true,
+          "schema": { "type": "integer" }
+        }
+      ]
+    },
+    {
+      "name": "check_job_status",
+      "description": "Checks the status of a background job using its Job ID.",
+      "api_endpoint": {
+        "url": "http://localhost:8080/api/v1/jobs/{job_id}",
+        "method": "GET"
+      },
+      "parameters": [
+        {
+          "name": "job_id",
+          "in": "path",
+          "description": "The UUID of the job to check.",
+          "required": true,
+          "schema": { "type": "string" }
+        }
+      ]
+    },
+    {
+        "name": "trigger_model_retraining",
+        "description": "Starts a background job to retrain all forecasting models with the latest data and refresh the forecast cache.",
+        "api_endpoint": {
+            "url": "http://localhost:8080/api/v1/mlops/training/run",
+            "method": "POST"
+        },
+        "parameters": []
+    }
+  ]
+}
